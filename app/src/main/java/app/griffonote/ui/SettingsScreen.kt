@@ -71,14 +71,14 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
 
             Section("Affichage")
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = vm.gridView, onClick = { vm.setGridView(true) }, label = { Text("Grille") })
-                FilterChip(selected = !vm.gridView, onClick = { vm.setGridView(false) }, label = { Text("Liste") })
+                FilterChip(selected = vm.gridView, onClick = { vm.changeGridView(true) }, label = { Text("Grille") })
+                FilterChip(selected = !vm.gridView, onClick = { vm.changeGridView(false) }, label = { Text("Liste") })
             }
             Text("Thème", Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
             Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(vm.theme == ThemeMode.SYSTEM, { vm.setTheme(ThemeMode.SYSTEM) }, { Text("Système") })
-                FilterChip(vm.theme == ThemeMode.LIGHT, { vm.setTheme(ThemeMode.LIGHT) }, { Text("Clair") })
-                FilterChip(vm.theme == ThemeMode.DARK, { vm.setTheme(ThemeMode.DARK) }, { Text("Sombre") })
+                FilterChip(vm.theme == ThemeMode.SYSTEM, { vm.changeTheme(ThemeMode.SYSTEM) }, { Text("Système") })
+                FilterChip(vm.theme == ThemeMode.LIGHT, { vm.changeTheme(ThemeMode.LIGHT) }, { Text("Clair") })
+                FilterChip(vm.theme == ThemeMode.DARK, { vm.changeTheme(ThemeMode.DARK) }, { Text("Sombre") })
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
@@ -89,7 +89,7 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
                 Text("${vm.trashDays} jours", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     listOf(7, 15, 30, 60, 90).forEach { d ->
-                        DropdownMenuItem(text = { Text("$d jours") }, onClick = { vm.setTrashDays(d); menu = false })
+                        DropdownMenuItem(text = { Text("$d jours") }, onClick = { vm.changeTrashDays(d); menu = false })
                     }
                 }
             }

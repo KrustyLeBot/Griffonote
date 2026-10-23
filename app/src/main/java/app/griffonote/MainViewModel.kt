@@ -189,9 +189,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- settings ----
 
-    fun setGridView(v: Boolean) { gridView = v; settings.gridView = v }
-    fun setTheme(v: ThemeMode) { theme = v; settings.theme = v }
-    fun setTrashDays(v: Int) { trashDays = v; settings.trashDays = v }
+    fun changeGridView(v: Boolean) { gridView = v; settings.gridView = v }
+    fun changeTheme(v: ThemeMode) { theme = v; settings.theme = v }
+    fun changeTrashDays(v: Int) { trashDays = v; settings.trashDays = v }
 
     // ---- navigation ----
 

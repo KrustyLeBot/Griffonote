@@ -223,7 +223,7 @@ fun ListScreen(vm: MainViewModel) {
                                     Icon(Icons.Default.DeleteForever, "Vider la corbeille")
                                 }
                             } else {
-                                IconButton(onClick = { vm.setGridView(!vm.gridView) }) {
+                                IconButton(onClick = { vm.changeGridView(!vm.gridView) }) {
                                     Icon(
                                         if (vm.gridView) Icons.Default.ViewAgenda else Icons.Default.ViewModule,
                                         if (vm.gridView) "Vue liste" else "Vue grille",
