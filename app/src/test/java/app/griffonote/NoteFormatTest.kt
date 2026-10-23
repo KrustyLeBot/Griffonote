@@ -92,4 +92,14 @@ class NoteFormatTest {
         assertEquals("note", NoteFormat.slug("???"))
         assertEquals("courses-k3f9a2.md", NoteFormat.fileNameFor("Courses", "k3f9a2"))
     }
+
+    @Test
+    fun sharedKeepChecklistBecomesTaskItems() {
+        val shared = "Courses\n☐ Lait\n☑ Pain\n[ ] Oeufs\nTexte"
+        val parts = BodyFormat.parse(BodyFormat.fromShared(shared))
+        assertEquals("Courses", parts.before)
+        assertEquals(listOf("Lait", "Pain", "Oeufs"), parts.items.map { it.text })
+        assertEquals(listOf(false, true, false), parts.items.map { it.checked })
+        assertEquals("Texte", parts.after)
+    }
 }

@@ -231,9 +231,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.EDITOR
     }
 
+    /** Text shared from another app (e.g. Google Keep's "Send"): becomes a new note. */
     fun handleShare(subject: String?, text: String?) {
         if (text.isNullOrBlank() && subject.isNullOrBlank()) return
-        newNote(title = subject.orEmpty(), text = text.orEmpty())
+        flushEditor()
+        val ed = EditorState(null, isNew = true)
+        ed.title = subject.orEmpty().trim()
+        ed.applyBody(BodyFormat.fromShared(text.orEmpty()).trim('\n'))
+        editor = ed
+        screen = Screen.EDITOR
     }
 
     private fun buildNote(ed: EditorState, snap: EditorSnapshot, body: String): Note {

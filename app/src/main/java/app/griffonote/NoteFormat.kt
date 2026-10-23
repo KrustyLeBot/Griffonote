@@ -214,6 +214,16 @@ object ItemIds {
 }
 
 object BodyFormat {
+    private val SHARED_OPEN = Regex("""^\s*(?:[-*•]\s*)?(?:☐|□|⬜|\[ ?\])\s*(.*)$""")
+    private val SHARED_DONE = Regex("""^\s*(?:[-*•]\s*)?(?:☑|☒|✅|✔|\[[xX]\])\s*(.*)$""")
+
+    /** Turns checklist lines of shared text (Google Keep: "☐ item") into Markdown task items. */
+    fun fromShared(text: String): String = text.replace("\r\n", "\n").lines().joinToString("\n") { line ->
+        SHARED_DONE.matchEntire(line)?.let { "- [x] ${it.groupValues[1]}" }
+            ?: SHARED_OPEN.matchEntire(line)?.let { "- [ ] ${it.groupValues[1]}" }
+            ?: line
+    }
+
     fun parse(body: String): BodyParts {
         val lines = body.split("\n")
         val first = lines.indexOfFirst { CHECK_REGEX.matches(it) }
