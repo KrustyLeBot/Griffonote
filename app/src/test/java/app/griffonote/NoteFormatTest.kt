@@ -31,7 +31,7 @@ class NoteFormatTest {
 
     @Test
     fun parsesKnownFields() {
-        val n = NoteFormat.parse("idees-appli-x81bq0.md", Folder.NOTES, sample, 0L)
+        val n = NoteFormat.parse("idees-appli-x81bq0.md", sample, 0L)
         assertEquals("x81bq0", n.id)
         assertEquals("Idées appli", n.title)
         assertEquals("yellow", n.color)
@@ -43,8 +43,8 @@ class NoteFormatTest {
 
     @Test
     fun roundTripKeepsUnknownFieldsAndBody() {
-        val n = NoteFormat.parse("a.md", Folder.NOTES, sample, 0L)
-        val again = NoteFormat.parse("a.md", Folder.NOTES, NoteFormat.serialize(n), 0L)
+        val n = NoteFormat.parse("a.md", sample, 0L)
+        val again = NoteFormat.parse("a.md", NoteFormat.serialize(n), 0L)
         assertEquals(n.copy(), again)
         assertEquals(listOf("obsidian-tags:", "  - a", "  - b"), again.extra)
         assertTrue(NoteFormat.serialize(n).contains("obsidian-tags:\n  - a\n  - b\n"))
@@ -52,10 +52,10 @@ class NoteFormatTest {
 
     @Test
     fun titleNeedingQuotesRoundTrips() {
-        val base = NoteFormat.parse("a.md", Folder.NOTES, sample, 0L)
+        val base = NoteFormat.parse("a.md", sample, 0L)
         for (t in listOf("a: b", "# not a comment", "true", "42", "- dash", "say \"hi\"", "back\\slash", "")) {
             val n = base.copy(title = t, labels = listOf("x, y", "z"))
-            val back = NoteFormat.parse("a.md", Folder.NOTES, NoteFormat.serialize(n), 0L)
+            val back = NoteFormat.parse("a.md", NoteFormat.serialize(n), 0L)
             assertEquals(t, back.title)
             assertEquals(listOf("x, y", "z"), back.labels)
         }
@@ -63,7 +63,7 @@ class NoteFormatTest {
 
     @Test
     fun fileWithoutFrontmatterIsAccepted() {
-        val n = NoteFormat.parse("liste-courses.md", Folder.NOTES, "Lait\nPain\n", 1000L)
+        val n = NoteFormat.parse("liste-courses.md", "Lait\nPain\n", 1000L)
         assertFalse(n.hasId)
         assertEquals("liste courses", n.title)
         assertEquals("Lait\nPain", n.body)
@@ -72,7 +72,7 @@ class NoteFormatTest {
 
     @Test
     fun conflictFilesAreFlagged() {
-        val n = NoteFormat.parse("courses-k3f9a2.conflict-2.md", Folder.NOTES, sample, 0L)
+        val n = NoteFormat.parse("courses-k3f9a2.conflict-2.md", sample, 0L)
         assertTrue(n.conflict)
     }
 

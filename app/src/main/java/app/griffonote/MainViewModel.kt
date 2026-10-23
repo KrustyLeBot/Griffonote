@@ -26,7 +26,6 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
 enum class Screen { LIST, EDITOR, SETTINGS }
-enum class Section { NOTES, ARCHIVE, TRASH }
 
 data class Snack(val text: String, val undo: (() -> Unit)? = null)
 
@@ -60,8 +59,6 @@ class EditorState(note: Note?, val isNew: Boolean) {
     var lastSnapshot: EditorSnapshot? = null
     var loadedRaw: String? = null
 
-    val folder: Folder get() = base?.folder ?: Folder.NOTES
-    val readOnly: Boolean get() = folder == Folder.TRASH
     val conflict: Boolean get() = base?.conflict == true
 
     init {
@@ -104,15 +101,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     var screen by mutableStateOf(Screen.LIST)
     var editor by mutableStateOf<EditorState?>(null)
-    var section by mutableStateOf(Section.NOTES)
     var labelFilter by mutableStateOf<String?>(null)
     var query by mutableStateOf("")
-    var searching by mutableStateOf(false)
     var snack by mutableStateOf<Snack?>(null)
 
     var gridView by mutableStateOf(settings.gridView)
     var theme by mutableStateOf(settings.theme)
-    var trashDays by mutableStateOf(settings.trashDays)
     var storageLabel by mutableStateOf("")
     var storageReady by mutableStateOf(false)
     var pendingStorage by mutableStateOf<StorageConfig?>(null)
@@ -191,15 +185,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun changeGridView(v: Boolean) { gridView = v; settings.gridView = v }
     fun changeTheme(v: ThemeMode) { theme = v; settings.theme = v }
-    fun changeTrashDays(v: Int) { trashDays = v; settings.trashDays = v }
 
     // ---- navigation ----
 
-    fun selectSection(s: Section, label: String? = null) {
-        section = s
+    fun selectLabel(label: String?) {
         labelFilter = label
         query = ""
-        searching = false
         screen = Screen.LIST
     }
 
@@ -210,8 +201,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Screen.EDITOR -> closeEditor()
             Screen.SETTINGS -> screen = Screen.LIST
             Screen.LIST -> when {
-                searching -> { searching = false; query = "" }
-                section != Section.NOTES || labelFilter != null -> selectSection(Section.NOTES)
+                query.isNotEmpty() -> query = ""
+                labelFilter != null -> selectLabel(null)
             }
         }
     }
@@ -250,7 +241,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val b = ed.base
         return if (b == null) {
             Note(
-                path = "", folder = Folder.NOTES, id = NoteFormat.generateId(), title = snap.title,
+                path = "", id = NoteFormat.generateId(), title = snap.title,
                 color = snap.color, pinned = snap.pinned, labels = snap.labels,
                 created = now, updated = now, body = body,
             )
@@ -266,7 +257,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun persist(ed: EditorState) {
         val snap = ed.snapshot()
         val body = ed.body()
-        if (ed.readOnly || snap == ed.lastSnapshot) return
+        if (snap == ed.lastSnapshot) return
         if (ed.base == null && snap.title.isBlank() && body.isBlank()) return
         persistLock.withLock {
             val note = buildNote(ed, snap, body)
@@ -304,7 +295,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (raw == ed.loadedRaw) return@launch
             val dirty = ed.snapshot() != ed.lastSnapshot
             val modified = withContext(io) { repo.fs.lastModified(path) }
-            val note = NoteFormat.parse(path, ed.folder, raw, modified)
+            val note = NoteFormat.parse(path, raw, modified)
             if (!dirty) {
                 ed.reloadFrom(note)
                 ed.loadedRaw = raw
@@ -323,48 +314,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (keepMine) {
                 ed.loadedRaw = raw
                 ed.base = ed.base?.let { b ->
-                    NoteFormat.parse(path, ed.folder, raw, 0L).let { disk -> b.copy(extra = disk.extra) }
+                    NoteFormat.parse(path, raw, 0L).let { disk -> b.copy(extra = disk.extra) }
                 }
                 ed.lastSnapshot = null // force the write
                 persist(ed)
             } else {
                 val modified = withContext(io) { repo.fs.lastModified(path) }
-                ed.reloadFrom(NoteFormat.parse(path, ed.folder, raw, modified))
+                ed.reloadFrom(NoteFormat.parse(path, raw, modified))
                 ed.loadedRaw = raw
             }
         }
     }
 
-    private fun moveEditorNote(target: Folder, message: String) {
+    /** Deletes the open note for good; the snackbar offers a short-lived undo. */
+    fun deleteEditorNote() {
         val ed = editor ?: return
-        viewModelScope.launch {
-            persist(ed)
-            val note = ed.base
-            if (note == null) { closeEditor(); return@launch }
-            val previous = note.folder
-            val moved = withContext(io) { repo.moveTo(note, target) }
-            screen = Screen.LIST
-            editor = null
-            snack = Snack(message) {
-                viewModelScope.launch { withContext(io) { repo.moveTo(moved, previous) } }
-            }
-        }
-    }
-
-    fun archiveEditorNote() = moveEditorNote(Folder.ARCHIVE, "Note archivée")
-    fun unarchiveEditorNote() = moveEditorNote(Folder.NOTES, "Note désarchivée")
-    fun trashEditorNote() = moveEditorNote(Folder.TRASH, "Note placée dans la corbeille")
-    fun restoreEditorNote() = moveEditorNote(Folder.NOTES, "Note restaurée")
-
-    fun deleteEditorNoteForever() {
-        val note = editor?.base
         screen = Screen.LIST
         editor = null
-        if (note != null) viewModelScope.launch { withContext(io) { repo.deleteForever(note) } }
-    }
-
-    fun emptyTrash() {
-        viewModelScope.launch { withContext(io) { repo.emptyTrash() } }
+        viewModelScope.launch {
+            persistLock.withLock { }
+            val note = ed.base ?: return@launch
+            withContext(io) { repo.delete(note) }
+            snack = Snack("Note supprimée") {
+                viewModelScope.launch { withContext(io) { repo.save(note) } }
+            }
+        }
     }
 
     fun keepConflictCopy() {
@@ -397,7 +371,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun allLabels(): List<String> =
-        notes.value.filter { it.folder != Folder.TRASH }.flatMap { it.labels }.distinct().sortedBy { it.fold() }
+        notes.value.flatMap { it.labels }.distinct().sortedBy { it.fold() }
 
     // ---- updates ----
 

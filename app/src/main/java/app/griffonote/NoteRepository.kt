@@ -34,28 +34,18 @@ class NoteRepository(private val context: Context, private val settings: Setting
     fun scan() {
         val result = ArrayList<Note>()
         val seen = HashSet<String>()
-        val purgeBefore = System.currentTimeMillis() - settings.trashDays * 86_400_000L
-        for (folder in Folder.entries) {
-            for (entry in fs.list(folder.dir)) {
-                if (entry.isDir || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue
-                val path = if (folder.dir.isEmpty()) entry.name else "${folder.dir}/${entry.name}"
-                seen.add(path)
-                val cached = parsed[path]
-                val note = if (cached != null && cached.first == entry.lastModified) {
-                    cached.second
-                } else {
-                    val text = fs.readText(path) ?: continue
-                    NoteFormat.parse(path, folder, text, entry.lastModified).also {
-                        parsed[path] = entry.lastModified to it
-                    }
-                }
-                if (folder == Folder.TRASH && (note.trashed ?: entry.lastModified) < purgeBefore) {
-                    fs.delete(path)
-                    parsed.remove(path)
-                    continue
-                }
-                result.add(note)
+        for (entry in fs.list("")) {
+            if (entry.isDir || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue
+            val path = entry.name
+            seen.add(path)
+            val cached = parsed[path]
+            val note = if (cached != null && cached.first == entry.lastModified) {
+                cached.second
+            } else {
+                val text = fs.readText(path) ?: continue
+                NoteFormat.parse(path, text, entry.lastModified).also { parsed[path] = entry.lastModified to it }
             }
+            result.add(note)
         }
         parsed.keys.retainAll(seen)
         _notes.value = result
@@ -66,15 +56,15 @@ class NoteRepository(private val context: Context, private val settings: Setting
         val fileFs = fs as? FileFs ?: return
         val mask = FileObserver.CREATE or FileObserver.DELETE or FileObserver.MODIFY or
             FileObserver.MOVED_FROM or FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE
-        observers = Folder.entries.mapNotNull { folder ->
-            val dir = if (folder.dir.isEmpty()) fileFs.root else File(fileFs.root, folder.dir)
-            if (!dir.isDirectory) return@mapNotNull null
+        val dir = fileFs.root
+        if (!dir.isDirectory) return
+        observers = listOf(
             object : FileObserver(dir.absolutePath, mask) {
                 override fun onEvent(event: Int, path: String?) {
                     if (path != null && path.endsWith(".md")) onExternalChange?.invoke()
                 }
-            }.also { it.startWatching() }
-        }
+            }.also { it.startWatching() },
+        )
     }
 
     fun stopWatching() {
@@ -86,7 +76,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
     var onExternalChange: (() -> Unit)? = null
 
     fun existingLabels(): List<String> =
-        _notes.value.filter { it.folder != Folder.TRASH }.flatMap { it.labels }.distinct().sortedBy { it.fold() }
+        _notes.value.flatMap { it.labels }.distinct().sortedBy { it.fold() }
 
     // ---- writes ----
 
@@ -97,9 +87,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
             val ids = _notes.value.map { it.id }.toSet()
             var id = n.id
             while (id in ids || id.isEmpty()) id = NoteFormat.generateId()
-            val dir = n.folder.dir
-            val name = NoteFormat.fileNameFor(n.title, id)
-            n = n.copy(id = id, path = if (dir.isEmpty()) name else "$dir/$name", hasId = true)
+            n = n.copy(id = id, path = NoteFormat.fileNameFor(n.title, id), hasId = true)
         }
         n = n.copy(hasId = true)
         fs.writeText(n.path, NoteFormat.serialize(n))
@@ -111,35 +99,10 @@ class NoteRepository(private val context: Context, private val settings: Setting
 
     fun readRaw(path: String): String? = fs.readText(path)
 
-    fun moveTo(note: Note, folder: Folder): Note {
-        if (note.folder == folder) return note
-        val name = note.fileName
-        var target = if (folder.dir.isEmpty()) name else "${folder.dir}/$name"
-        if (fs.exists(target)) {
-            target = target.removeSuffix(".md").let { "$it-${NoteFormat.generateId()}.md" }
-        }
-        val moved = note.copy(
-            path = target,
-            folder = folder,
-            trashed = if (folder == Folder.TRASH) System.currentTimeMillis() else null,
-            pinned = if (folder == Folder.NOTES) note.pinned else false,
-        )
-        fs.writeText(target, NoteFormat.serialize(moved))
-        fs.delete(note.path)
-        parsed.remove(note.path)
-        parsed[target] = fs.lastModified(target) to moved
-        _notes.value = _notes.value.filter { it.path != note.path } + moved
-        return moved
-    }
-
-    fun deleteForever(note: Note) {
+    fun delete(note: Note) {
         fs.delete(note.path)
         parsed.remove(note.path)
         _notes.value = _notes.value.filter { it.path != note.path }
-    }
-
-    fun emptyTrash() {
-        _notes.value.filter { it.folder == Folder.TRASH }.forEach { deleteForever(it) }
     }
 
     /**

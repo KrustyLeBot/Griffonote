@@ -1,18 +1,10 @@
 package app.griffonote
 
-/** Where a note lives on disk. Archive and trash are real folders, not flags. */
-enum class Folder(val dir: String) {
-    NOTES(""),
-    ARCHIVE(".archive"),
-    TRASH(".trash"),
-}
-
 const val DEFAULT_COLOR = "default"
 
 data class Note(
-    /** Path relative to the storage root, e.g. `.trash/courses-k3f9a2.md`. */
+    /** Path relative to the storage root, e.g. `courses-k3f9a2.md`. */
     val path: String,
-    val folder: Folder,
     val id: String,
     /** False for `.md` files created elsewhere (no frontmatter id yet). */
     val hasId: Boolean = true,
@@ -24,7 +16,6 @@ data class Note(
     val reminder: Long? = null,
     val created: Long,
     val updated: Long,
-    val trashed: Long? = null,
     val body: String = "",
     /** Unknown frontmatter lines, kept verbatim for Obsidian compatibility. */
     val extra: List<String> = emptyList(),

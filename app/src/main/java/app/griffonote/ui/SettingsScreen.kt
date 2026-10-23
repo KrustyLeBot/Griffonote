@@ -82,19 +82,6 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
-            Section("Corbeille")
-            var menu by remember { mutableStateOf(false) }
-            Column(Modifier.fillMaxWidth().clickable { menu = true }.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Vider automatiquement après")
-                Text("${vm.trashDays} jours", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    listOf(7, 15, 30, 60, 90).forEach { d ->
-                        DropdownMenuItem(text = { Text("$d jours") }, onClick = { vm.changeTrashDays(d); menu = false })
-                    }
-                }
-            }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
             Section("À propos")
             Text(
                 "Griffonote ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",

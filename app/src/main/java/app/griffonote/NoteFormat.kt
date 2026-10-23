@@ -11,11 +11,11 @@ import kotlin.random.Random
 
 /** Markdown + YAML frontmatter reader/writer. Pure Kotlin so it can be unit-tested on the JVM. */
 object NoteFormat {
-    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "created", "updated", "trashed")
+    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "created", "updated")
     private val KEY_REGEX = Regex("""^([A-Za-z_][\w-]*):[ \t]*(.*)$""")
     private const val ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 
-    fun parse(path: String, folder: Folder, rawText: String, lastModified: Long): Note {
+    fun parse(path: String, rawText: String, lastModified: Long): Note {
         val text = rawText.removePrefix("\uFEFF").replace("\r\n", "\n")
         val fileName = path.substringAfterLast('/')
         val conflict = fileName.contains("conflict", ignoreCase = true)
@@ -32,7 +32,7 @@ object NoteFormat {
             // Plain markdown file created elsewhere: title comes from the file name.
             val title = fileName.removeSuffix(".md").replace(Regex("[-_]+"), " ").trim()
             return Note(
-                path = path, folder = folder, id = generateId(), hasId = false,
+                path = path, id = generateId(), hasId = false,
                 title = title, created = lastModified, updated = lastModified,
                 body = text.trim('\n'), conflict = conflict,
             )
@@ -67,7 +67,6 @@ object NoteFormat {
         val id = values["id"]?.let { unquote(it) }.orEmpty()
         return Note(
             path = path,
-            folder = folder,
             id = id.ifEmpty { generateId() },
             hasId = id.isNotEmpty(),
             title = values["title"]?.let { unquote(it) }
@@ -78,7 +77,6 @@ object NoteFormat {
             reminder = values["reminder"]?.let { parseTime(it) },
             created = values["created"]?.let { parseTime(it) } ?: lastModified,
             updated = values["updated"]?.let { parseTime(it) } ?: lastModified,
-            trashed = values["trashed"]?.let { parseTime(it) },
             body = body,
             extra = extra,
             conflict = conflict,
@@ -97,7 +95,6 @@ object NoteFormat {
         note.reminder?.let { sb.append("reminder: ").append(formatTime(it)).append('\n') }
         sb.append("created: ").append(formatTime(note.created)).append('\n')
         sb.append("updated: ").append(formatTime(note.updated)).append('\n')
-        note.trashed?.let { sb.append("trashed: ").append(formatTime(it)).append('\n') }
         note.extra.forEach { sb.append(it).append('\n') }
         sb.append("---\n")
         if (note.body.isNotBlank()) sb.append('\n').append(note.body.trim('\n')).append('\n')

@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) { vm.checkUpdateSilently() }
 
         GriffonoteTheme(vm.theme) {
-            BackHandler(enabled = vm.screen != Screen.LIST || vm.searching || vm.section != Section.NOTES || vm.labelFilter != null) {
+            BackHandler(enabled = vm.screen != Screen.LIST || vm.query.isNotEmpty() || vm.labelFilter != null) {
                 vm.back()
             }
             if (!vm.storageReady) {

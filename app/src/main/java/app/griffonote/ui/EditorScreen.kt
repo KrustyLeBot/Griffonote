@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -26,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -41,7 +43,6 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Title
-import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -92,7 +93,6 @@ import androidx.compose.ui.zIndex
 import app.griffonote.CheckItem
 import app.griffonote.DEFAULT_COLOR
 import app.griffonote.EditorState
-import app.griffonote.Folder
 import app.griffonote.ItemIds
 import app.griffonote.MainViewModel
 import app.griffonote.MarkdownEdit
@@ -111,7 +111,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
     val focusManager = LocalFocusManager.current
     var showColors by remember { mutableStateOf(false) }
     var showLabels by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
+    var textFocused by remember { mutableStateOf(false) }
 
     LaunchedEffect(ed) {
         androidx.compose.runtime.snapshotFlow { ed.snapshot() }
@@ -175,48 +175,46 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                 },
                 title = {},
                 actions = {
-                    if (!ed.readOnly) {
-                        IconButton(onClick = { ed.pinned = !ed.pinned }) {
-                            Icon(
-                                Icons.Default.PushPin, if (ed.pinned) "Désépingler" else "Épingler",
-                                tint = if (ed.pinned) MaterialTheme.colorScheme.primary else fg.copy(alpha = 0.6f),
-                            )
-                        }
+                    IconButton(onClick = { ed.pinned = !ed.pinned }) {
+                        Icon(
+                            Icons.Default.PushPin, if (ed.pinned) "Désépingler" else "Épingler",
+                            tint = if (ed.pinned) MaterialTheme.colorScheme.primary else fg.copy(alpha = 0.6f),
+                        )
                     }
                 },
             )
         },
         bottomBar = {
             Surface(color = bg, contentColor = fg) {
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).navigationBarsPadding().imePadding().padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (!ed.readOnly) {
-                        ToolButton(Icons.Default.FormatBold, "Gras") { ed.text = MarkdownEdit.toggleWrap(ed.text, "**") }
-                        ToolButton(Icons.Default.FormatItalic, "Italique") { ed.text = MarkdownEdit.toggleWrap(ed.text, "*") }
-                        ToolButton(Icons.Default.Title, "Titre") { ed.text = MarkdownEdit.cycleHeading(ed.text) }
-                        ToolButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Puces") { ed.text = MarkdownEdit.toggleBullet(ed.text) }
+                Column(Modifier.navigationBarsPadding().imePadding()) {
+                    if (textFocused) {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            FormatButton(Icons.Default.FormatBold, "Gras") { ed.text = MarkdownEdit.toggleWrap(ed.text, "**") }
+                            FormatButton(Icons.Default.FormatItalic, "Italique") { ed.text = MarkdownEdit.toggleWrap(ed.text, "*") }
+                            FormatButton(Icons.Default.Title, "Titre") { ed.text = MarkdownEdit.cycleHeading(ed.text) }
+                            FormatButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Puces") { ed.text = MarkdownEdit.toggleBullet(ed.text) }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         ToolButton(Icons.Default.CheckBox, "Liste à cocher") { vm.convertToChecklist() }
                         ToolButton(Icons.Default.Palette, "Couleur") { showColors = true }
                         ToolButton(Icons.Default.Label, "Libellés") { showLabels = true }
-                    }
-                    ToolButton(Icons.Default.Share, "Partager") {
-                        val text = Note(
-                            path = "", folder = Folder.NOTES, id = "", title = ed.title,
-                            created = 0, updated = 0, body = ed.body(),
-                        ).shareText()
-                        val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                            .putExtra(Intent.EXTRA_SUBJECT, ed.title).putExtra(Intent.EXTRA_TEXT, text)
-                        context.startActivity(Intent.createChooser(send, null))
-                    }
-                    if (!ed.readOnly) {
-                        if (ed.folder == Folder.ARCHIVE) {
-                            ToolButton(Icons.Default.Unarchive, "Désarchiver") { vm.unarchiveEditorNote() }
-                        } else {
-                            ToolButton(Icons.Default.Archive, "Archiver") { vm.archiveEditorNote() }
+                        ToolButton(Icons.Default.Share, "Partager") {
+                            val text = Note(
+                                path = "", id = "", title = ed.title,
+                                created = 0, updated = 0, body = ed.body(),
+                            ).shareText()
+                            val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_SUBJECT, ed.title).putExtra(Intent.EXTRA_TEXT, text)
+                            context.startActivity(Intent.createChooser(send, null))
                         }
-                        ToolButton(Icons.Default.Delete, "Supprimer") { vm.trashEditorNote() }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { vm.deleteEditorNote() }) {
+                            Icon(Icons.Default.Delete, "Supprimer", tint = MaterialTheme.colorScheme.error)
+                        }
                     }
                 }
             }
@@ -225,16 +223,10 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
         Column(
             Modifier.padding(padding).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
-            if (ed.readOnly) {
-                Banner("Cette note est dans la corbeille") {
-                    TextButton(onClick = { vm.restoreEditorNote() }) { Text("Restaurer") }
-                    TextButton(onClick = { confirmDelete = true }) { Text("Supprimer") }
-                }
-            }
             if (ed.conflict) {
                 Banner("Copie de conflit créée par la synchronisation") {
                     TextButton(onClick = { vm.keepConflictCopy() }) { Text("Garder celle-ci") }
-                    TextButton(onClick = { vm.trashEditorNote() }) { Text("Supprimer") }
+                    TextButton(onClick = { vm.deleteEditorNote() }) { Text("Supprimer") }
                 }
             }
 
@@ -243,7 +235,6 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
             BasicTextField(
                 value = ed.title,
                 onValueChange = { ed.title = it.replace("\n", " ") },
-                readOnly = ed.readOnly,
                 textStyle = MaterialTheme.typography.titleLarge.copy(color = fg),
                 cursorBrush = cursor,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
@@ -261,11 +252,10 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                 BasicTextField(
                     value = ed.text,
                     onValueChange = { ed.text = it },
-                    readOnly = ed.readOnly,
-                    textStyle = textStyle,
+                        textStyle = textStyle,
                     cursorBrush = cursor,
                     visualTransformation = transformation,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { textFocused = it.isFocused },
                     decorationBox = { inner ->
                         Box(Modifier.padding(vertical = 4.dp)) {
                             if (ed.text.text.isEmpty()) Text("Note", style = textStyle, color = hint)
@@ -292,7 +282,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                             .onGloballyPositioned { heights[item.id] = it.size.height },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        if (!ed.readOnly) {
+                        run {
                             Icon(
                                 Icons.Default.DragHandle, "Déplacer",
                                 tint = fg.copy(alpha = 0.5f),
@@ -319,14 +309,13 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                         }
                         Checkbox(
                             checked = false,
-                            onCheckedChange = { if (!ed.readOnly) updateItem(item.id) { it.copy(checked = true) } },
+                            onCheckedChange = { updateItem(item.id) { it.copy(checked = true) } },
                             colors = CheckboxDefaults.colors(uncheckedColor = fg.copy(alpha = 0.7f)),
                         )
                         BasicTextField(
                             value = item.text,
                             onValueChange = { v -> updateItem(item.id) { it.copy(text = v.replace("\n", " ")) } },
-                            readOnly = ed.readOnly,
-                            textStyle = textStyle,
+                                        textStyle = textStyle,
                             cursorBrush = cursor,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                             keyboardActions = KeyboardActions(onNext = { addItemAfter(item.id) }),
@@ -339,7 +328,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                                     } else false
                                 },
                         )
-                        if (!ed.readOnly) {
+                        run {
                             IconButton(onClick = { removeItem(item.id, focusPrevious = false) }, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Default.Close, "Supprimer l'élément", tint = fg.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
                             }
@@ -347,7 +336,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                     }
                 }
             }
-            if (ed.items.isNotEmpty() && !ed.readOnly) {
+            if (ed.items.isNotEmpty()) {
                 Row(
                     Modifier.fillMaxWidth().clickable { addItemAfter(null) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -376,7 +365,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                             Row(Modifier.fillMaxWidth().alpha(0.6f), verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(
                                     checked = true,
-                                    onCheckedChange = { if (!ed.readOnly) updateItem(item.id) { it.copy(checked = false) } },
+                                    onCheckedChange = { updateItem(item.id) { it.copy(checked = false) } },
                                     modifier = Modifier.padding(start = 24.dp),
                                 )
                                 Text(item.text, style = textStyle.copy(textDecoration = TextDecoration.LineThrough))
@@ -390,8 +379,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                 BasicTextField(
                     value = ed.after,
                     onValueChange = { ed.after = it },
-                    readOnly = ed.readOnly,
-                    textStyle = textStyle.copy(color = fg.copy(alpha = 0.7f)),
+                        textStyle = textStyle.copy(color = fg.copy(alpha = 0.7f)),
                     cursorBrush = cursor,
                     visualTransformation = transformation,
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -500,18 +488,6 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
         )
     }
 
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Supprimer définitivement ?") },
-            text = { Text("Cette note sera supprimée pour toujours.") },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; vm.deleteEditorNoteForever() }) { Text("Supprimer") }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
-        )
-    }
-
     if (ed.externalConflict) {
         AlertDialog(
             onDismissRequest = {},
@@ -521,6 +497,11 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
             dismissButton = { TextButton(onClick = { vm.resolveExternal(keepMine = false) }) { Text("Recharger") } },
         )
     }
+}
+
+@Composable
+private fun FormatButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(40.dp)) { Icon(icon, label) }
 }
 
 @Composable

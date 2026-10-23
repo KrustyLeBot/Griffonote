@@ -10,9 +10,7 @@ folder (`Documents/Griffonote/` by default), so notes can be read and edited on 
 Griffonote/
 ├── courses-k3f9a2.md      # one file per note: YAML frontmatter + Markdown body
 ├── attachments/
-├── drawings/
-├── .archive/
-└── .trash/
+└── drawings/
 ```
 
 - The file name is fixed at creation (`<slug>-<id6>.md`) and never renamed.
@@ -24,7 +22,7 @@ Griffonote/
 ## Status
 
 Milestones 1–2 and 6 (partly) are implemented: text notes, checklists (drag to reorder,
-checked items folded), colours, pin, labels, archive, trash (auto-purge), full-text search,
+checked items folded), colours, pin, labels, full-text search,
 grid/list view, share in/out (text), conflict-file badge, external-change handling,
 settings, self-update. Images, drawings and reminders (milestones 3–5) are not done yet.
 

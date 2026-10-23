@@ -28,10 +28,6 @@ class Settings(context: Context) {
         get() = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM")!!) }.getOrDefault(ThemeMode.SYSTEM)
         set(v) = prefs.edit().putString("theme", v.name).apply()
 
-    var trashDays: Int
-        get() = prefs.getInt("trash_days", 30)
-        set(v) = prefs.edit().putInt("trash_days", v).apply()
-
     val storage: StorageConfig
         get() = storageUri?.let { StorageConfig.Tree(Uri.parse(it)) } ?: StorageConfig.Default
 
