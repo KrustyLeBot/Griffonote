@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import app.griffonote.ui.EditorScreen
 import app.griffonote.ui.GriffonoteTheme
 import app.griffonote.ui.ListScreen
+import app.griffonote.ui.PdfViewerScreen
 import app.griffonote.ui.PermissionScreen
 import app.griffonote.ui.SettingsScreen
 
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
                     Screen.LIST -> ListScreen(vm, onScan = { startScan { scanner.launch(it) } })
                     Screen.EDITOR -> vm.editor?.let { EditorScreen(vm, it) }
                     Screen.SETTINGS -> SettingsScreen(vm, onPickFolder = { pickTree.launch(null) })
+                    Screen.PDF -> vm.viewingPdf?.let { PdfViewerScreen(vm, it) }
                 }
             }
         }

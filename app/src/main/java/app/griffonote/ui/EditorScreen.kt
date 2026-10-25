@@ -225,7 +225,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
         ) {
             ed.base?.pdf?.let { pdf ->
                 Banner("Document scanné") {
-                    TextButton(onClick = { vm.openPdf(pdf) }) { Text("Ouvrir le PDF") }
+                    TextButton(onClick = { vm.showPdf(pdf) }) { Text("Voir le PDF") }
                 }
             }
             if (ed.conflict) {

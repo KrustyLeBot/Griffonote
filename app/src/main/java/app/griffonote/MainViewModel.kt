@@ -27,11 +27,12 @@ import java.util.concurrent.Executors
 import app.griffonote.scan.ScanFormat
 import app.griffonote.scan.ScanImages
 import app.griffonote.scan.ScanPdf
+import app.griffonote.scan.PdfPages
 import app.griffonote.sync.SkipReason
 import app.griffonote.sync.SyncState
 import app.griffonote.sync.SynchrotronClient
 
-enum class Screen { LIST, EDITOR, SETTINGS }
+enum class Screen { LIST, EDITOR, SETTINGS, PDF }
 
 data class Snack(val text: String, val undo: (() -> Unit)? = null)
 
@@ -299,7 +300,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Opens the note's PDF in the phone's PDF viewer. */
+    /** PDF shown by the in-app viewer ([Screen.PDF]). */
+    var viewingPdf by mutableStateOf<String?>(null)
+        private set
+
+    fun showPdf(path: String) {
+        flushEditor()
+        viewingPdf = path
+        screen = Screen.PDF
+    }
+
+    /** Opens the PDF for the in-app viewer; the caller closes it. */
+    suspend fun openPdfPages(path: String): PdfPages = withContext(io) {
+        val fd = when (val fs = repo.fs) {
+            is FileFs -> android.os.ParcelFileDescriptor.open(java.io.File(fs.root, path), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            is SafFs -> fs.uriOf(path)?.let { getApplication<Application>().contentResolver.openFileDescriptor(it, "r") }
+            else -> null
+        } ?: throw java.io.FileNotFoundException("PDF introuvable (pas encore synchronisé ?)")
+        PdfPages(fd)
+    }
+
+    /** Opens the note's PDF in another app (the phone's PDF viewer). */
     fun openPdf(path: String) {
         val app = getApplication<Application>()
         val uri = when (val fs = repo.fs) {
@@ -332,6 +353,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         when (screen) {
             Screen.EDITOR -> closeEditor()
             Screen.SETTINGS -> screen = Screen.LIST
+            Screen.PDF -> { viewingPdf = null; screen = if (editor != null) Screen.EDITOR else Screen.LIST }
             Screen.LIST -> when {
                 query.isNotEmpty() -> query = ""
                 labelFilter != null -> selectLabel(null)

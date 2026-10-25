@@ -104,6 +104,9 @@ class ChecklistWidget(QWidget):
         self.fg = fg
         self.expanded = False
         self._drag_row: ItemRow | None = None
+        # One order for every item, checked or not (as on Android): checking an item only shows it in the
+        # folded section, so unchecking it puts it back where it was.
+        self._order: list[ItemRow] = []
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -135,12 +138,12 @@ class ChecklistWidget(QWidget):
                 w = box.takeAt(0).widget()
                 if w:
                     w.deleteLater()
-        for item in items:
-            self._insert(item, None)
+        self._order = [self._make_row(item) for item in items]
+        self._layout_rows()
         self._sync_chrome()
 
     def items(self) -> list[CheckItem]:
-        return [r.item() for r in self._rows(self.open_box)] + [r.item() for r in self._rows(self.done_box)]
+        return [r.item() for r in self._order]
 
     def count(self) -> int:
         return self.open_box.count() + self.done_box.count()
@@ -148,7 +151,15 @@ class ChecklistWidget(QWidget):
     def _rows(self, box: QVBoxLayout) -> list[ItemRow]:
         return [box.itemAt(i).widget() for i in range(box.count())]
 
-    def _insert(self, item: CheckItem, index: int | None) -> ItemRow:
+    def _layout_rows(self) -> None:
+        """Puts every row in its section, following the single order."""
+        for box in (self.open_box, self.done_box):
+            while box.count():
+                box.takeAt(0)
+        for row in self._order:
+            (self.done_box if row.checked else self.open_box).addWidget(row)
+
+    def _make_row(self, item: CheckItem) -> ItemRow:
         row = ItemRow(item, self.fg)
         row.toggled.connect(self._on_toggled)
         row.edited.connect(self.changed)
@@ -157,8 +168,6 @@ class ChecklistWidget(QWidget):
         row.drag_started.connect(self._drag_start)
         row.drag_moved.connect(self._drag_move)
         row.drag_ended.connect(self._drag_end)
-        box = self.done_box if item.checked else self.open_box
-        box.insertWidget(box.count() if index is None else index, row)
         return row
 
     def _sync_chrome(self) -> None:
@@ -177,8 +186,13 @@ class ChecklistWidget(QWidget):
     # ---- actions ----
 
     def add_item(self, after: ItemRow | None) -> None:
-        index = self.open_box.indexOf(after) + 1 if after is not None else None
-        row = self._insert(CheckItem("", False), index)
+        row = self._make_row(CheckItem("", False))
+        if after is not None and after in self._order:
+            index = self._order.index(after) + 1
+        else:  # after the last unchecked item
+            index = max((i + 1 for i, r in enumerate(self._order) if not r.checked), default=0)
+        self._order.insert(index, row)
+        self._layout_rows()
         row.edit.setFocus()
         self._sync_chrome()
         self.changed.emit()
@@ -186,8 +200,9 @@ class ChecklistWidget(QWidget):
     def _remove(self, row: ItemRow, focus_previous: bool) -> None:
         rows = self._rows(self.open_box)
         index = rows.index(row) if row in rows else -1
-        box = self.open_box if row in rows else self.done_box
-        box.removeWidget(row)
+        self._order.remove(row)
+        self._layout_rows()
+        row.setParent(None)
         row.deleteLater()
         if focus_previous and index > 0:
             rows[index - 1].edit.setFocus()
@@ -195,11 +210,11 @@ class ChecklistWidget(QWidget):
         self.changed.emit()
 
     def _on_toggled(self, row: ItemRow) -> None:
-        item = row.item()
-        was_open = row in self._rows(self.open_box)
-        (self.open_box if was_open else self.done_box).removeWidget(row)
+        # Same place in the order, only the section changes (a new row: checked rows look different).
+        self._order[self._order.index(row)] = self._make_row(row.item())
+        self._layout_rows()
+        row.setParent(None)
         row.deleteLater()
-        self._insert(item, None)  # checked -> end of the folded section; unchecked -> end of the open list
         self._sync_chrome()
         self.changed.emit()
 
@@ -224,6 +239,8 @@ class ChecklistWidget(QWidget):
         if target != rows.index(row):
             self.open_box.removeWidget(row)
             self.open_box.insertWidget(target, row)
+            # Like Android: after a reorder, the unchecked items come first, then the checked ones.
+            self._order = self._rows(self.open_box) + [r for r in self._order if r.checked]
             self.changed.emit()
 
     def _drag_end(self, row: ItemRow) -> None:

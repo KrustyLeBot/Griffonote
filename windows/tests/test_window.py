@@ -78,10 +78,11 @@ def test_checklist_items_check_fold_and_reorder(window, tmp_path):
     ed.title.setText("Liste")
     ed.checklist.set_items([fmt.CheckItem("Lait"), fmt.CheckItem("Pain"), fmt.CheckItem("Oeufs")])
     ed._edited()
-    # tick "Lait": it moves to the folded section
+    # tick "Lait": it is shown in the folded section but keeps its place (as on Android)
     first = ed.checklist._rows(ed.checklist.open_box)[0]
     first.box.setChecked(True)
-    assert [i.text for i in ed.checklist.items()] == ["Pain", "Oeufs", "Lait"]
+    assert [i.text for i in ed.checklist.items()] == ["Lait", "Pain", "Oeufs"]
+    assert [r.item().text for r in ed.checklist._rows(ed.checklist.open_box)] == ["Pain", "Oeufs"]
     assert ed.checklist.fold_button.text().strip() == "1 élément coché"
     # reorder through the drag logic
     rows = ed.checklist._rows(ed.checklist.open_box)
@@ -93,6 +94,17 @@ def test_checklist_items_check_fold_and_reorder(window, tmp_path):
     ed.save()
     body = read(tmp_path).body
     assert body == "- [ ] Oeufs\n- [ ] Pain\n- [x] Lait"
+
+
+def test_unchecking_puts_an_item_back_where_it_was(window):
+    window.new_note(checklist=True)
+    cl = window.editor.checklist
+    cl.set_items([fmt.CheckItem("Lait"), fmt.CheckItem("Pain"), fmt.CheckItem("Oeufs")])
+    cl._rows(cl.open_box)[1].box.setChecked(True)  # Pain
+    assert [r.item().text for r in cl._rows(cl.open_box)] == ["Lait", "Oeufs"]
+    cl._rows(cl.done_box)[0].box.setChecked(False)
+    assert [r.item().text for r in cl._rows(cl.open_box)] == ["Lait", "Pain", "Oeufs"]
+    assert cl.done_box.count() == 0
 
 
 def test_enter_adds_an_item_and_backspace_on_empty_removes_it(window):
