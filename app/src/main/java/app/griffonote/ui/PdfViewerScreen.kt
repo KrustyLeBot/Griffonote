@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -44,6 +45,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -97,23 +99,34 @@ fun PdfViewerScreen(vm: MainViewModel, path: String) {
 
 @Composable
 private fun ZoomablePages(doc: PdfPages) {
+    val list = rememberLazyListState()
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     BoxWithConstraints(
         Modifier.fillMaxSize()
-            // Two fingers zoom and pan; one finger is left to the list, which scrolls.
+            // Seen before the list (Initial pass): two fingers zoom; once zoomed, any drag pans the page,
+            // the vertical part scrolling the pages first. Not zoomed, one finger is left to the list.
             .pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     do {
-                        val event = awaitPointerEvent()
-                        if (event.changes.count { it.pressed } >= 2) {
-                            val newScale = (scale * event.calculateZoom()).coerceIn(1f, 4f)
-                            val maxX = size.width * (newScale - 1) / 2
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val fingers = event.changes.count { it.pressed }
+                        if (fingers >= 2 || scale > 1f) {
+                            val zoom = if (fingers >= 2) event.calculateZoom() else 1f
                             val pan = event.calculatePan()
-                            offset = Offset((offset.x + pan.x).coerceIn(-maxX, maxX), 0f)
-                            scale = newScale
-                            event.changes.forEach { it.consume() }
+                            if (zoom != 1f || pan != Offset.Zero) {
+                                scale = (scale * zoom).coerceIn(1f, 4f)
+                                val maxX = size.width * (scale - 1) / 2
+                                val maxY = size.height * (scale - 1) / 2
+                                val wanted = -pan.y / scale
+                                val left = wanted - list.dispatchRawDelta(wanted) // what the list could not scroll
+                                offset = if (scale == 1f) Offset.Zero else Offset(
+                                    (offset.x + pan.x).coerceIn(-maxX, maxX),
+                                    (offset.y - left * scale).coerceIn(-maxY, maxY),
+                                )
+                                event.changes.forEach { it.consume() }
+                            }
                         }
                     } while (event.changes.any { it.pressed })
                 }
@@ -125,8 +138,9 @@ private fun ZoomablePages(doc: PdfPages) {
         val widthPx = with(LocalDensity.current) { maxWidth.roundToPx() }
         LazyColumn(
             Modifier.fillMaxSize().graphicsLayer {
-                scaleX = scale; scaleY = scale; translationX = offset.x
+                scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
             },
+            state = list,
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
