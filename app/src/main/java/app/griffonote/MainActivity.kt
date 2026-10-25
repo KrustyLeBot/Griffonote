@@ -10,7 +10,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +67,12 @@ class MainActivity : ComponentActivity() {
         val legacyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
             vm.onResume()
         }
+        val scanner = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                val pages = GmsDocumentScanningResult.fromActivityResultIntent(result.data)?.pages.orEmpty()
+                vm.saveScan(pages.map { it.imageUri })
+            }
+        }
 
         val owner = LocalLifecycleOwner.current
         DisposableEffect(owner) {
@@ -90,12 +100,25 @@ class MainActivity : ComponentActivity() {
                 )
             } else {
                 when (vm.screen) {
-                    Screen.LIST -> ListScreen(vm)
+                    Screen.LIST -> ListScreen(vm, onScan = { startScan { scanner.launch(it) } })
                     Screen.EDITOR -> vm.editor?.let { EditorScreen(vm, it) }
                     Screen.SETTINGS -> SettingsScreen(vm, onPickFolder = { pickTree.launch(null) })
                 }
             }
         }
+    }
+
+    /** Google's document scanner: camera, automatic page corners, several pages. Photos only, no gallery. */
+    private fun startScan(launch: (IntentSenderRequest) -> Unit) {
+        val options = GmsDocumentScannerOptions.Builder()
+            .setGalleryImportAllowed(false)
+            .setPageLimit(30)
+            .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+            .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+            .build()
+        GmsDocumentScanning.getClient(options).getStartScanIntent(this)
+            .addOnSuccessListener { launch(IntentSenderRequest.Builder(it).build()) }
+            .addOnFailureListener { vm.snack = Snack("Scanner indisponible : ${it.message}") }
     }
 
     private fun requestFileAccess(legacy: (String) -> Unit) {

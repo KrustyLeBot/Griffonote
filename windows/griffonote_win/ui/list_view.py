@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPoint, Qt, Signal
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QToolButton,
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QScrollArea, QSizePolicy, QToolButton,
                                QVBoxLayout, QWidget)
 
 from ..core import note as fmt
@@ -26,6 +26,8 @@ def preview_text(note: Note) -> str:
 
 class NoteCard(QFrame):
     clicked = Signal(object)
+    open_pdf = Signal(object)  # Note
+    reveal = Signal(object)  # Note: show its file (the PDF for a scan) in the Explorer
 
     def __init__(self, note: Note):
         super().__init__()
@@ -48,6 +50,14 @@ class NoteCard(QFrame):
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(6)
 
+        if note.pdf:
+            pdf = QLabel("PDF")
+            pdf.setObjectName("chip")
+            pdf.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            row = QHBoxLayout()
+            row.addWidget(pdf)
+            row.addStretch()
+            layout.addLayout(row)
         if note.conflict:
             badge = QLabel("Conflit")
             badge.setObjectName("badge")
@@ -93,6 +103,13 @@ class NoteCard(QFrame):
         layout.activate()
         return max(layout.totalHeightForWidth(width), layout.sizeHint().height())
 
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        if self.note.pdf:
+            menu.addAction("Ouvrir le PDF", lambda: self.open_pdf.emit(self.note))
+        menu.addAction("Afficher dans l'Explorateur", lambda: self.reveal.emit(self.note))
+        menu.exec(event.globalPos())
+
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
             self.clicked.emit(self.note)
@@ -100,6 +117,8 @@ class NoteCard(QFrame):
 
 
 class ListScreen(QWidget):
+    open_pdf = Signal(object)  # Note
+    reveal = Signal(object)  # Note
     open_note = Signal(object)
     new_note = Signal(bool)  # checklist?
     open_settings = Signal()
@@ -295,6 +314,8 @@ class ListScreen(QWidget):
             c = NoteCard(note)
             c.setParent(self.canvas)
             c.clicked.connect(self.open_note)
+            c.open_pdf.connect(self.open_pdf)
+            c.reveal.connect(self.reveal)
             c.show()
             self._items.append(("card", c))
 

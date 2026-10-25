@@ -3,6 +3,7 @@ package app.griffonote
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import app.griffonote.scan.ScanFormat
 import java.io.File
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
@@ -32,6 +33,10 @@ class Settings(context: Context) {
     var syncHintDismissed: Boolean
         get() = prefs.getBoolean("sync_hint_dismissed", false)
         set(v) = prefs.edit().putBoolean("sync_hint_dismissed", v).apply()
+
+    var scanFormat: ScanFormat
+        get() = runCatching { ScanFormat.valueOf(prefs.getString("scan_format", "AUTO")!!) }.getOrDefault(ScanFormat.AUTO)
+        set(v) = prefs.edit().putString("scan_format", v.name).apply()
 
     val storage: StorageConfig
         get() = storageUri?.let { StorageConfig.Tree(Uri.parse(it)) } ?: StorageConfig.Default

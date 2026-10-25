@@ -17,6 +17,8 @@ data class Note(
     val created: Long,
     val updated: Long,
     val body: String = "",
+    /** Scanned document attached to the note, relative to the storage root (`attachments/<name>.pdf`). */
+    val pdf: String? = null,
     /** Unknown frontmatter lines, kept verbatim for Obsidian compatibility. */
     val extra: List<String> = emptyList(),
     val conflict: Boolean = false,

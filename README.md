@@ -9,10 +9,13 @@ folder (`Documents/Griffonote/` by default), so notes can be read and edited on 
 ```
 Griffonote/
 ├── courses-k3f9a2.md      # one file per note: YAML frontmatter + Markdown body
-├── attachments/
+├── attachments/           # scanned documents (scan-...-k3f9a2.pdf), referenced by `pdf:` in a note
 └── drawings/
 ```
 
+- A scan is a normal note whose frontmatter has `pdf: attachments/<name>.pdf`; the Android app creates it
+  with Google's document scanner (automatic page corners, several pages) and fits each page on A4 or
+  US Letter (guessed from the page shape, or fixed in the settings), compressed for a fast sync.
 - The file name is fixed at creation (`<slug>-<id6>.md`) and never renamed.
 - Unknown frontmatter fields are preserved verbatim.
 - Writes are atomic (temporary file, then rename).

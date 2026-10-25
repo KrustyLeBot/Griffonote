@@ -13,7 +13,7 @@ from ..core.note import Note
 from ..core.store import Store, now_ms
 from ..services import updater
 from ..services.async_util import run_async
-from . import theme
+from . import files, theme
 from .editor_view import EditorScreen
 from .list_view import ListScreen
 from .settings_view import SettingsScreen
@@ -73,6 +73,9 @@ class MainWindow(QMainWindow):
         self.list_screen.grid_toggled.connect(self._grid_changed)
         self.editor.back_requested.connect(self.close_editor)
         self.editor.delete_requested.connect(self.delete_note)
+        self.editor.open_pdf.connect(self.open_pdf)
+        self.list_screen.open_pdf.connect(self.open_pdf)
+        self.list_screen.reveal.connect(self.reveal_note)
         self.editor.message.connect(self.show_snack)
         self.editor.saved.connect(lambda _: self.refresh())
         self.settings.back_requested.connect(self.show_list)
@@ -187,12 +190,26 @@ class MainWindow(QMainWindow):
         self.refresh()
         self.show_list()
 
+    def open_pdf(self, note: Note) -> None:
+        path = self.store.pdf_path(note)
+        if path is None or not files.open_file(path):
+            self.show_snack("PDF introuvable (pas encore synchronisé ?)")
+
+    def reveal_note(self, note: Note) -> None:
+        path = self.store.pdf_path(note) or self.store.root / note.path
+        if not files.reveal(path):
+            self.show_snack("Fichier introuvable")
+
     def delete_note(self, note: Note) -> None:
         """Deletes for good; the snackbar offers a short-lived undo (like on the phone)."""
         if note.path:
+            pdf = self.store.pdf_path(note)
+            pdf_bytes = pdf.read_bytes() if pdf is not None and pdf.exists() else None
             self.store.delete(note)
 
             def undo() -> None:
+                if pdf is not None and pdf_bytes is not None:
+                    pdf.write_bytes(pdf_bytes)
                 self.store.save(note)
                 self.refresh()
 

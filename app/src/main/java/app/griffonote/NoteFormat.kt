@@ -11,7 +11,7 @@ import kotlin.random.Random
 
 /** Markdown + YAML frontmatter reader/writer. Pure Kotlin so it can be unit-tested on the JVM. */
 object NoteFormat {
-    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "created", "updated")
+    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "pdf", "created", "updated")
     private val KEY_REGEX = Regex("""^([A-Za-z_][\w-]*):[ \t]*(.*)$""")
     private const val ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -75,6 +75,7 @@ object NoteFormat {
             pinned = values["pinned"]?.trim()?.equals("true", ignoreCase = true) == true,
             labels = values["labels"]?.let { parseList(it) }.orEmpty(),
             reminder = values["reminder"]?.let { parseTime(it) },
+            pdf = values["pdf"]?.let { unquote(it) }?.ifEmpty { null },
             created = values["created"]?.let { parseTime(it) } ?: lastModified,
             updated = values["updated"]?.let { parseTime(it) } ?: lastModified,
             body = body,
@@ -93,6 +94,7 @@ object NoteFormat {
             sb.append("labels: [").append(note.labels.joinToString(", ") { yamlQuote(it, flow = true) }).append("]\n")
         }
         note.reminder?.let { sb.append("reminder: ").append(formatTime(it)).append('\n') }
+        note.pdf?.let { sb.append("pdf: ").append(yamlQuote(it)).append('\n') }
         sb.append("created: ").append(formatTime(note.created)).append('\n')
         sb.append("updated: ").append(formatTime(note.updated)).append('\n')
         note.extra.forEach { sb.append(it).append('\n') }

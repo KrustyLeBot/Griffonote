@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -83,7 +85,7 @@ private fun previewText(note: Note): String =
         .take(300)
 
 @Composable
-fun ListScreen(vm: MainViewModel) {
+fun ListScreen(vm: MainViewModel, onScan: () -> Unit) {
     val notes by vm.notes.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val visible = remember(notes, vm.labelFilter, vm.query) { filterNotes(notes, vm.labelFilter, vm.query) }
@@ -100,6 +102,11 @@ fun ListScreen(vm: MainViewModel) {
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SmallFloatingActionButton(
+                    onClick = { if (!vm.syncing && !vm.savingScan) onScan() },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) { Icon(Icons.Default.DocumentScanner, "Scanner un document") }
                 SmallFloatingActionButton(
                     onClick = { vm.newNote(checklist = true) },
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -276,6 +283,12 @@ private fun NoteCard(note: Note, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {
+            if (note.pdf != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+                    Icon(Icons.Default.PictureAsPdf, null, Modifier.size(18.dp))
+                    Text(" PDF", style = MaterialTheme.typography.labelMedium)
+                }
+            }
             if (note.conflict) {
                 Surface(
                     shape = RoundedCornerShape(50),

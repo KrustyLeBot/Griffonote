@@ -36,6 +36,7 @@ import app.griffonote.MainViewModel
 import app.griffonote.StorageConfig
 import app.griffonote.ThemeMode
 import app.griffonote.Updater
+import app.griffonote.scan.ScanFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +90,20 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
                 FilterChip(vm.theme == ThemeMode.LIGHT, { vm.changeTheme(ThemeMode.LIGHT) }, { Text("Clair") })
                 FilterChip(vm.theme == ThemeMode.DARK, { vm.changeTheme(ThemeMode.DARK) }, { Text("Sombre") })
             }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+            Section("Scans")
+            Text("Format des pages", Modifier.padding(start = 16.dp, bottom = 4.dp))
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ScanFormat.entries.forEach { f ->
+                    FilterChip(vm.scanFormat == f, { vm.changeScanFormat(f) }, { Text(f.label) })
+                }
+            }
+            Text(
+                "Automatique : A4 ou US Letter selon la forme de la page.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp),
+            )
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
             Section("À propos")

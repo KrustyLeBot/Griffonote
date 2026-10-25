@@ -84,6 +84,9 @@ class SafFs(private val context: Context, private val treeUri: Uri) : Fs {
     private val rootDoc: DocumentFile? get() = DocumentFile.fromTreeUri(context, treeUri)
     private val cache = HashMap<String, DocumentFile>()
 
+    /** Content URI of a file, to open it in another app. */
+    fun uriOf(path: String): Uri? = resolve(path)?.uri
+
     private fun resolve(path: String): DocumentFile? {
         if (path.isEmpty()) return rootDoc
         cache[path]?.let { return it }

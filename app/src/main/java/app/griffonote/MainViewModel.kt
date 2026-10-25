@@ -24,6 +24,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
+import app.griffonote.scan.ScanFormat
+import app.griffonote.scan.ScanImages
+import app.griffonote.scan.ScanPdf
 import app.griffonote.sync.SkipReason
 import app.griffonote.sync.SyncState
 import app.griffonote.sync.SynchrotronClient
@@ -109,6 +112,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var snack by mutableStateOf<Snack?>(null)
 
     var gridView by mutableStateOf(settings.gridView)
+    var scanFormat by mutableStateOf(settings.scanFormat)
+    /** A scan is being turned into a PDF note. */
+    var savingScan by mutableStateOf(false)
+        private set
     var theme by mutableStateOf(settings.theme)
     var storageLabel by mutableStateOf("")
     var storageReady by mutableStateOf(false)
@@ -261,6 +268,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun changeGridView(v: Boolean) { gridView = v; settings.gridView = v }
     fun changeTheme(v: ThemeMode) { theme = v; settings.theme = v }
+    fun changeScanFormat(v: ScanFormat) { scanFormat = v; settings.scanFormat = v }
+
+    // ---- scans ----
+
+    /** Turns the pages returned by the document scanner into a note holding a small PDF, then opens it. */
+    fun saveScan(pages: List<Uri>) {
+        if (pages.isEmpty() || savingScan) return
+        savingScan = true
+        viewModelScope.launch {
+            try {
+                val note = withContext(io) {
+                    val app = getApplication<Application>()
+                    val pdf = ScanPdf.build(pages.map { ScanImages.compress(app, it) }, scanFormat)
+                    val now = System.currentTimeMillis()
+                    val title = "Scan du " + java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale.FRANCE).format(java.util.Date(now))
+                    var id = NoteFormat.generateId()
+                    while (notes.value.any { it.id == id }) id = NoteFormat.generateId()
+                    val pdfPath = "attachments/" + NoteFormat.fileNameFor(title, id).removeSuffix(".md") + ".pdf"
+                    repo.fs.writeBytes(pdfPath, pdf)
+                    repo.save(Note(path = "", id = id, title = title, created = now, updated = now, pdf = pdfPath))
+                }
+                openNote(note)
+                snack = Snack("Scan enregistré (${pages.size} page${if (pages.size > 1) "s" else ""})")
+            } catch (e: Exception) {
+                snack = Snack("Scan impossible : ${e.message}")
+            } finally {
+                savingScan = false
+            }
+        }
+    }
+
+    /** Opens the note's PDF in the phone's PDF viewer. */
+    fun openPdf(path: String) {
+        val app = getApplication<Application>()
+        val uri = when (val fs = repo.fs) {
+            is FileFs -> androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", java.io.File(fs.root, path))
+            is SafFs -> fs.uriOf(path)
+            else -> null
+        }
+        if (uri == null) { snack = Snack("PDF introuvable"); return }
+        try {
+            app.startActivity(
+                android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
+                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: android.content.ActivityNotFoundException) {
+            snack = Snack("Aucune application pour lire les PDF")
+        }
+    }
 
     // ---- navigation ----
 
@@ -418,9 +474,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             persistLock.withLock { }
             val note = ed.base ?: return@launch
+            val pdfBytes = withContext(io) { note.pdf?.let { repo.fs.readBytes(it) } }
             withContext(io) { repo.delete(note) }
             snack = Snack("Note supprimée") {
-                viewModelScope.launch { withContext(io) { repo.save(note) } }
+                viewModelScope.launch {
+                    withContext(io) {
+                        if (note.pdf != null && pdfBytes != null) repo.fs.writeBytes(note.pdf, pdfBytes)
+                        repo.save(note)
+                    }
+                }
             }
         }
     }

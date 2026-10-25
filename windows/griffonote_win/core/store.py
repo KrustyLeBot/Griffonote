@@ -86,11 +86,17 @@ class Store:
         self._cache[note.path] = (mtime, note)
         return note
 
+    def pdf_path(self, note: Note) -> Path | None:
+        """Absolute path of the note's scanned PDF, if it has one."""
+        return self.root / note.pdf if note.pdf else None
+
     def delete(self, note: Note) -> None:
-        try:
-            (self.root / note.path).unlink()
-        except FileNotFoundError:
-            pass
+        for path in (self.root / note.path, self.pdf_path(note)):
+            try:
+                if path is not None:
+                    path.unlink()
+            except FileNotFoundError:
+                pass
         self._cache.pop(note.path, None)
 
     def keep_conflict_copy(self, copy: Note) -> Note:

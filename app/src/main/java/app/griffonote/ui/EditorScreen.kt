@@ -223,6 +223,11 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
         Column(
             Modifier.padding(padding).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
+            ed.base?.pdf?.let { pdf ->
+                Banner("Document scanné") {
+                    TextButton(onClick = { vm.openPdf(pdf) }) { Text("Ouvrir le PDF") }
+                }
+            }
             if (ed.conflict) {
                 Banner("Copie de conflit créée par la synchronisation") {
                     TextButton(onClick = { vm.keepConflictCopy() }) { Text("Garder celle-ci") }

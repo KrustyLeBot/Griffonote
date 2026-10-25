@@ -70,3 +70,12 @@ def test_slug_and_file_name():
 def test_plain_body_renders_checklists():
     n = fmt.parse("a.md", SAMPLE, 0)
     assert "☐ Item à faire" in n.plain_body() and "☑ Item fait" in n.plain_body()
+
+
+def test_scanned_pdf_survives_a_round_trip():
+    note = fmt.parse("scan-k3f9a2.md", "---\nid: k3f9a2\ntitle: Scan\npdf: attachments/scan-k3f9a2.pdf\n"
+                     "created: 2026-10-25T10:00:00Z\nupdated: 2026-10-25T10:00:00Z\n---\n", 0)
+    assert note.pdf == "attachments/scan-k3f9a2.pdf"
+    assert note.extra == []
+    assert "pdf: attachments/scan-k3f9a2.pdf" in fmt.serialize(note)
+    assert fmt.parse("plain.md", "---\nid: abc123\ntitle: x\n---\n", 0).pdf is None

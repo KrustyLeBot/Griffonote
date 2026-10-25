@@ -160,6 +160,7 @@ class Chips(QWidget):
 class EditorScreen(QWidget):
     back_requested = Signal()
     delete_requested = Signal(object)  # Note
+    open_pdf = Signal(object)  # Note
     message = Signal(str)
     saved = Signal(str)
 
@@ -229,6 +230,16 @@ class EditorScreen(QWidget):
         banner_row.addWidget(remove)
         self.banner.hide()
         self.column.addWidget(self.banner)
+
+        self.pdf_banner = QFrame()
+        self.pdf_banner.setObjectName("banner")
+        pdf_row = QHBoxLayout(self.pdf_banner)
+        pdf_row.addWidget(QLabel("Document scanné"), 1)
+        open_pdf = QPushButton("Ouvrir le PDF")
+        open_pdf.clicked.connect(lambda: self.current is not None and self.open_pdf.emit(self.current))
+        pdf_row.addWidget(open_pdf)
+        self.pdf_banner.hide()
+        self.column.addWidget(self.pdf_banner)
 
         self.title = QLineEdit()
         self.title.setPlaceholderText("Titre")
@@ -359,6 +370,7 @@ class EditorScreen(QWidget):
         self.checklist.set_items(parts.items)
         self.after.setPlainText(parts.after)
         self.banner.setVisible(note.conflict)
+        self.pdf_banner.setVisible(bool(note.pdf))
         self._refresh_visibility()
         self.dirty = False
         self._loading = False
