@@ -178,6 +178,14 @@ fun ListScreen(vm: MainViewModel) {
                         androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                 }
+            } else if (vm.syncNotice != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(vm.syncNotice.orEmpty(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                }
             } else if (vm.offerSyncSetup) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,

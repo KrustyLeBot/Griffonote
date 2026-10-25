@@ -125,6 +125,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     private var stopSync: (() -> Unit)? = null
 
+    /** Short result line of the last sync ("3 changements"), shown in the banner and gone after a few seconds. */
+    var syncNotice by mutableStateOf<String?>(null)
+        private set
+    private var noticeJob: Job? = null
+
+    private fun showSyncNotice(text: String) {
+        syncNotice = text
+        noticeJob?.cancel()
+        noticeJob = viewModelScope.launch {
+            delay(4000)
+            syncNotice = null
+        }
+    }
+
     init {
         Updater.cleanup(app)
         repo.onExternalChange = { viewModelScope.launch { delay(400); refresh() } }
@@ -168,21 +182,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         stopSync?.invoke()
         stopSync = SynchrotronClient.syncOnOpen(getApplication(), Settings.defaultDir().path) { state ->
             when (state) {
-                SyncState.Syncing -> syncing = true
+                SyncState.Syncing -> { syncing = true; syncNotice = null }
                 is SyncState.Done -> {
                     syncing = false
                     if (state.changes > 0) refresh()
                     when {
-                        state.hasConflicts -> snack = Snack("Conflits de synchro : ouvre les notes marquées")
-                        state.changes > 0 -> snack = Snack("Notes synchronisées (${state.changes} changement${if (state.changes > 1) "s" else ""})")
+                        state.hasConflicts -> showSyncNotice("Conflits de synchro : ouvre les notes marquées")
+                        state.changes > 0 -> showSyncNotice("Synchronisé · ${state.changes} changement${if (state.changes > 1) "s" else ""}")
                     }
                 }
-                is SyncState.Failed -> { syncing = false; snack = Snack("Échec de la synchro Proton Drive") }
-                SyncState.TimedOut -> { syncing = false; snack = Snack("Synchro longue : elle continue en arrière-plan") }
+                is SyncState.Failed -> { syncing = false; showSyncNotice("Échec de la synchro Proton Drive") }
+                SyncState.TimedOut -> { syncing = false; showSyncNotice("Synchro longue : elle continue en arrière-plan") }
                 is SyncState.Skipped -> {
                     syncing = false
                     offerSyncSetup = state.reason == SkipReason.NOT_REGISTERED && !settings.syncHintDismissed
-                    if (state.reason == SkipReason.NEEDS_SETUP) snack = Snack("Termine la configuration dans Synchrotron")
+                    if (state.reason == SkipReason.NEEDS_SETUP) showSyncNotice("Termine la configuration dans Synchrotron")
                 }
             }
         }
@@ -272,7 +286,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---- editor ----
 
     fun newNote(title: String = "", text: String = "", checklist: Boolean = false) {
-        if (syncing) { snack = Snack("Synchronisation en cours…"); return }
+        if (syncing) return // the banner already says why
         val ed = EditorState(null, isNew = true)
         ed.title = title
         if (checklist) {
@@ -288,7 +302,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openNote(note: Note) {
-        if (syncing) { snack = Snack("Synchronisation en cours…"); return }
+        if (syncing) return // the banner already says why
         val ed = EditorState(note, isNew = false)
         ed.loadedRaw = note.let { repo.fs.readText(it.path) }
         editor = ed
