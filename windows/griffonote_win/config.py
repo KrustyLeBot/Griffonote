@@ -27,3 +27,21 @@ class Config:
     def geometry(self, value) -> None:
         self._settings.setValue("geometry", value)
         self._settings.sync()
+
+    @property
+    def grid(self) -> bool:
+        return str(self._settings.value("grid", "true")).lower() == "true"
+
+    @grid.setter
+    def grid(self, value: bool) -> None:
+        self._settings.setValue("grid", "true" if value else "false")
+        self._settings.sync()
+
+    @property
+    def theme(self) -> str:
+        return str(self._settings.value("theme", "system"))
+
+    @theme.setter
+    def theme(self, value: str) -> None:
+        self._settings.setValue("theme", value)
+        self._settings.sync()

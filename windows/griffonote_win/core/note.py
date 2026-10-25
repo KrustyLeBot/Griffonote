@@ -235,3 +235,55 @@ def serialize(note: Note) -> str:
     if note.body.strip():
         text += "\n" + note.body.strip("\n") + "\n"
     return text
+
+
+# ---- body <-> editor model (same split as the Android editor) ----
+
+@dataclass
+class CheckItem:
+    text: str
+    checked: bool = False
+
+
+@dataclass
+class BodyParts:
+    before: str
+    items: list[CheckItem]
+    after: str
+
+
+def parse_body(body: str) -> BodyParts:
+    """Free text, then one checklist, then trailing text (images and anything else kept untouched)."""
+    lines = body.split("\n")
+    first = next((i for i, ln in enumerate(lines) if CHECK_RE.match(ln)), -1)
+    if first < 0:
+        return BodyParts(body.strip("\n"), [], "")
+    items: list[CheckItem] = []
+    i = first
+    while i < len(lines):
+        m = CHECK_RE.match(lines[i])
+        if m:
+            items.append(CheckItem(m[2], m[1] != " "))
+        elif lines[i].strip():
+            break
+        i += 1
+    return BodyParts("\n".join(lines[:first]).strip("\n"), items, "\n".join(lines[i:]).strip("\n"))
+
+
+def build_body(parts: BodyParts) -> str:
+    # Checked items always sit at the bottom of the list, like in Keep.
+    ordered = [x for x in parts.items if not x.checked] + [x for x in parts.items if x.checked]
+    checklist = "\n".join(f"- [{'x' if x.checked else ' '}] {x.text}".rstrip() for x in ordered)
+    return "\n\n".join(p for p in (parts.before.strip("\n"), checklist, parts.after.strip("\n")) if p.strip())
+
+
+URL_RE = re.compile(r"https?://[^\s<>\"]+")
+
+
+def find_urls(text: str) -> list[str]:
+    seen: list[str] = []
+    for m in URL_RE.finditer(text):
+        url = m.group(0).rstrip(".,;:!?)")
+        if url not in seen:
+            seen.append(url)
+    return seen

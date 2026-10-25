@@ -24,9 +24,9 @@ def main() -> int:
     app.setApplicationName("Griffonote")
     app.setStyle("Fusion")
     app.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "icon.png")))
-    app.setStyleSheet(theme.stylesheet())
 
     config = Config()
+    theme.apply_theme(app, config.theme)
     workdir = config.workdir
     if workdir is None or not workdir.is_dir():
         if workdir is not None:

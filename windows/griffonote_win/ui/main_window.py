@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import (QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidgetItem, QMainWindow, QMessageBox,
-                               QSizePolicy, QSplitter, QStackedWidget, QToolBar, QVBoxLayout, QWidget)
+from PySide6.QtCore import QFileSystemWatcher, QTimer, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+                               QPushButton, QStackedWidget)
 
 from ..config import Config
 from ..core import note as fmt
@@ -13,11 +13,11 @@ from ..core.note import Note
 from ..core.store import Store, now_ms
 from ..services import updater
 from ..services.async_util import run_async
-from .editor import EditorPanel
-from .note_list import NOTE_ROLE, NoteList
+from . import theme
+from .editor_view import EditorScreen
+from .list_view import ListScreen
+from .settings_view import SettingsScreen
 from .update_toast import UpdateToast
-
-ALL_LABELS = "Tous les libellés"
 
 
 def ask_workdir(parent, first_run: bool, start: Path | None = None) -> Path | None:
@@ -37,56 +37,54 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = config
         self.store = store
-        self.current: Note | None = None  # last saved/loaded version of the open note ("" path = not saved yet)
-        self.loaded_raw: str | None = None
-        self.dirty = False
         self.notes: list[Note] = []
         self.toast: UpdateToast | None = None
         self._cleanup_tries = 0
-        self._filling = False
-        self.resize(1100, 720)
+        self.resize(1100, 740)
 
-        # ---- left: search, label filter, list ----
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(8, 8, 8, 8)
-        self.search = QLineEdit()
-        self.search.setObjectName("search")
-        self.search.setPlaceholderText("Rechercher dans vos notes")
-        self.search.setClearButtonEnabled(True)
-        self.label_filter = QComboBox()
-        self.list = NoteList()
-        left_layout.addWidget(self.search)
-        left_layout.addWidget(self.label_filter)
-        left_layout.addWidget(self.list, 1)
-
-        # ---- right: editor or placeholder ----
-        self.editor = EditorPanel()
-        self.placeholder = QLabel("Sélectionne une note ou crée-en une nouvelle (Ctrl+N).")
-        self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.stack = QStackedWidget()
-        self.stack.addWidget(self.placeholder)
-        self.stack.addWidget(self.editor)
+        self.list_screen = ListScreen(config.grid)
+        self.editor = EditorScreen()
+        self.settings = SettingsScreen()
+        for page in (self.list_screen, self.editor, self.settings):
+            self.stack.addWidget(page)
+        self.setCentralWidget(self.stack)
 
-        splitter = QSplitter()
-        splitter.addWidget(left)
-        splitter.addWidget(self.stack)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([340, 760])
-        self.setCentralWidget(splitter)
-
-        self._build_actions()
+        # ---- snackbar (delete + undo, copy confirmation...) ----
+        self.snack = QFrame(self)
+        self.snack.setObjectName("snack")
+        snack_row = QHBoxLayout(self.snack)
+        snack_row.setContentsMargins(16, 6, 8, 6)
+        self.snack_text = QLabel()
+        self.snack_button = QPushButton("Annuler")
+        self.snack_button.setStyleSheet("QPushButton { color: #FFB950; } QPushButton:hover { background: #4A453F; }")
+        snack_row.addWidget(self.snack_text)
+        snack_row.addWidget(self.snack_button)
+        self.snack.hide()
+        self._snack_undo = None
+        self.snack_timer = QTimer(self, singleShot=True, interval=6000)
+        self.snack_timer.timeout.connect(self.snack.hide)
+        self.snack_button.clicked.connect(self._run_undo)
 
         # ---- wiring ----
-        self.search.textChanged.connect(lambda _: self.refresh())
-        self.label_filter.currentIndexChanged.connect(lambda _: self.refresh())
-        self.list.currentItemChanged.connect(self._on_select)
-        self.editor.changed.connect(self._on_edited)
-        self.editor.delete_requested.connect(self.delete_current)
-        self.editor.keep_conflict_requested.connect(self.keep_conflict)
+        self.list_screen.open_note.connect(self.open_note)
+        self.list_screen.new_note.connect(self.new_note)
+        self.list_screen.open_settings.connect(self.show_settings)
+        self.list_screen.grid_toggled.connect(self._grid_changed)
+        self.editor.back_requested.connect(self.close_editor)
+        self.editor.delete_requested.connect(self.delete_note)
+        self.editor.message.connect(self.show_snack)
+        self.editor.saved.connect(lambda _: self.refresh())
+        self.settings.back_requested.connect(self.show_list)
+        self.settings.choose_folder.connect(self.choose_workdir)
+        self.settings.grid_changed.connect(self._grid_changed)
+        self.settings.theme_changed.connect(self._theme_changed)
+        self.settings.check_updates.connect(lambda: self.check_updates(manual=True))
 
-        self.save_timer = QTimer(self, singleShot=True, interval=700)
-        self.save_timer.timeout.connect(self.save_current)
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.new_note(False))
+        QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=lambda: self.new_note(True))
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self._focus_search)
+        QShortcut(QKeySequence("Escape"), self, activated=self._escape)
 
         # The sync tool can drop files in the folder at any time: debounce, then rescan.
         self.watcher = QFileSystemWatcher(self)
@@ -106,55 +104,43 @@ class MainWindow(QMainWindow):
         self._update_timer.start(6 * 3600 * 1000)  # ... then every 6 hours
 
         self.set_store(store)
-        geometry = config.geometry
-        if geometry:
-            self.restoreGeometry(geometry)
+        if config.geometry:
+            self.restoreGeometry(config.geometry)
 
-    # ---- actions ----
+    # ---- navigation ----
 
-    def _build_actions(self) -> None:
-        bar = QToolBar("Principal")
-        bar.setMovable(False)
-        self.addToolBar(bar)
+    def show_list(self) -> None:
+        self.stack.setCurrentWidget(self.list_screen)
+        self.setWindowTitle(f"Griffonote — {self.store.root}")
 
-        def action(text: str, shortcut: str | None, slot) -> QAction:
-            act = QAction(text, self)
-            if shortcut:
-                act.setShortcut(QKeySequence(shortcut))
-            act.triggered.connect(lambda _=False: slot())
-            return act
+    def show_settings(self) -> None:
+        self.settings.load(str(self.store.root), self.list_screen.grid, self.config.theme)
+        self.stack.setCurrentWidget(self.settings)
 
-        self.new_action = action("Nouvelle note", "Ctrl+N", self.new_note)
-        self.new_list_action = action("Nouvelle liste", "Ctrl+Shift+N", lambda: self.new_note(checklist=True))
-        self.delete_action = action("Supprimer", "Ctrl+Shift+Delete", self.delete_current)
-        bar.addAction(self.new_action)
-        bar.addAction(self.new_list_action)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        bar.addWidget(spacer)
-        bar.addAction(self.delete_action)  # far right, like on the phone
+    def _escape(self) -> None:
+        current = self.stack.currentWidget()
+        if current is self.settings:
+            self.show_list()
+        elif current is self.list_screen and self.list_screen.search.text():
+            self.list_screen.search.clear()
 
-        menu = self.menuBar().addMenu("Fichier")
-        menu.addAction(action("Dossier de notes…", None, self.choose_workdir))
-        menu.addAction(action("Rechercher une mise à jour", None, lambda: self.check_updates(manual=True)))
-        menu.addSeparator()
-        menu.addAction(action("Quitter", "Ctrl+Q", self.close))
+    def _focus_search(self) -> None:
+        if self.stack.currentWidget() is self.list_screen:
+            self.list_screen.focus_search()
 
     # ---- store / list ----
 
     def set_store(self, store: Store) -> None:
-        self.save_current()
+        self.editor.close_note()
         self.store = store
-        self.current, self.loaded_raw, self.dirty = None, None, False
-        self.stack.setCurrentWidget(self.placeholder)
         if self.watcher.directories():
             self.watcher.removePaths(self.watcher.directories())
         self._arm_watcher()
-        self.setWindowTitle(f"Griffonote — {store.root}")
         self.refresh()
+        self.show_list()
 
     def _arm_watcher(self) -> None:
-        # Re-add the paths after every event: an atomically replaced file loses its watch.
+        # Re-add the path after every event: an atomically replaced file loses its watch.
         root = str(self.store.root)
         if root not in self.watcher.directories():
             self.watcher.addPath(root)
@@ -164,164 +150,84 @@ class MainWindow(QMainWindow):
         if path is not None:
             self.config.workdir = path
             self.set_store(Store(path))
+            self.show_settings()
 
-    def _visible(self) -> list[Note]:
-        query = fmt.fold(self.search.text().strip())
-        label = self.label_filter.currentText()
-        out = []
-        for n in self.notes:
-            if label and label != ALL_LABELS and label not in n.labels:
-                continue
-            if query and not (query in fmt.fold(n.title) or query in fmt.fold(n.body)
-                              or any(query in fmt.fold(x) for x in n.labels)):
-                continue
-            out.append(n)
-        out.sort(key=lambda n: (not n.pinned, -n.updated))
-        return out
-
-    def refresh(self, select_path: str | None = None) -> None:
+    def refresh(self) -> None:
         self.notes = self.store.scan()
-        wanted = select_path or (self.current.path if self.current else "")
-        self._filling = True
-        try:
-            labels = sorted({x for n in self.notes for x in n.labels}, key=fmt.fold)
-            selected_label = self.label_filter.currentText()
-            self.label_filter.blockSignals(True)
-            self.label_filter.clear()
-            self.label_filter.addItem(ALL_LABELS)
-            self.label_filter.addItems(labels)
-            index = self.label_filter.findText(selected_label)
-            self.label_filter.setCurrentIndex(max(index, 0))
-            self.label_filter.blockSignals(False)
+        self.list_screen.set_notes(self.notes)
 
-            self.list.clear()
-            for note in self._visible():
-                item = QListWidgetItem()
-                item.setData(NOTE_ROLE, note)
-                self.list.addItem(item)
-                if wanted and note.path == wanted:
-                    self.list.setCurrentItem(item)
-        finally:
-            self._filling = False
+    def _grid_changed(self, grid: bool) -> None:
+        self.config.grid = grid
+        self.list_screen.set_grid(grid)
+
+    def _theme_changed(self, mode: str) -> None:
+        self.config.theme = mode
+        theme.apply_theme(QApplication.instance(), mode)
+        for screen in (self.list_screen, self.settings):
+            screen.restyle()
+        self.list_screen.rebuild()
 
     # ---- editing ----
 
-    def _on_select(self, item, _previous) -> None:
-        if self._filling or item is None:
-            return
-        self.save_current()
-        self.open_note(item.data(NOTE_ROLE))
-
     def open_note(self, note: Note) -> None:
-        self.current = note
-        self.loaded_raw = self.store.read_raw(note.path)
-        self.editor.load(note)
-        self.dirty = False
+        self.editor.open(note, self.store, self.store.labels())
         self.stack.setCurrentWidget(self.editor)
+        self.setWindowTitle(f"Griffonote — {note.title or 'Sans titre'}")
 
     def new_note(self, checklist: bool = False) -> None:
-        self.save_current()
+        if self.stack.currentWidget() is self.editor:
+            self.editor.close_note()
         note = Note(path="", id=fmt.generate_id(), created=now_ms(), updated=now_ms(),
                     body="- [ ] " if checklist else "")
-        self.current, self.loaded_raw, self.dirty = note, None, False
-        self._filling = True
-        self.list.clearSelection()
-        self.list.setCurrentItem(None)
-        self._filling = False
-        self.editor.load(note)
+        self.editor.open(note, self.store, self.store.labels(), focus="list" if checklist else "title")
         self.stack.setCurrentWidget(self.editor)
-        if checklist:
-            self.editor.focus_body()
-        else:
-            self.editor.focus_title()
 
-    def _on_edited(self) -> None:
-        if self.current is None:
-            return
-        self.dirty = True
-        self.editor.status.setText("Modifications en cours…")
-        self.save_timer.start()
-
-    @staticmethod
-    def _is_blank(note: Note) -> bool:
-        return not note.title and note.body.strip() in ("", "- [ ]")
-
-    def save_current(self) -> None:
-        self.save_timer.stop()
-        if self.current is None or not self.dirty:
-            return
-        edited = self.editor.apply_to(self.current)
-        if not edited.path and self._is_blank(edited):
-            return  # nothing worth a file yet
-        edited = edited.copy(updated=now_ms())
-        try:
-            saved = self.store.save(edited)
-        except OSError as exc:
-            self.editor.status.setText(f"Échec de l'enregistrement : {exc}")
-            return
-        self.current = saved
-        self.loaded_raw = self.store.read_raw(saved.path)
-        self.dirty = False
-        self.editor.status.setText("Enregistré")
-        self.refresh(select_path=saved.path)
-
-    def delete_current(self) -> None:
-        if self.current is None:
-            return
-        if self.current.path:
-            answer = QMessageBox.question(
-                self, "Supprimer la note", "Supprimer définitivement cette note ?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
-            self.store.delete(self.current)
-        self.save_timer.stop()
-        self.current, self.loaded_raw, self.dirty = None, None, False
-        self.stack.setCurrentWidget(self.placeholder)
+    def close_editor(self) -> None:
+        self.editor.close_note()
         self.refresh()
+        self.show_list()
 
-    def keep_conflict(self) -> None:
-        if self.current is None or not self.current.conflict:
-            return
-        self.save_current()
-        kept = self.store.keep_conflict_copy(self.current)
-        self.open_note(kept)
-        self.refresh(select_path=kept.path)
+    def delete_note(self, note: Note) -> None:
+        """Deletes for good; the snackbar offers a short-lived undo (like on the phone)."""
+        if note.path:
+            self.store.delete(note)
+
+            def undo() -> None:
+                self.store.save(note)
+                self.refresh()
+
+            self.show_snack("Note supprimée", undo)
+        self.refresh()
+        self.show_list()
+
+    # ---- snackbar ----
+
+    def show_snack(self, text: str, undo=None) -> None:
+        self.snack_text.setText(text)
+        self.snack_button.setVisible(undo is not None)
+        self._snack_undo = undo
+        self.snack.adjustSize()
+        self._place_snack()
+        self.snack.show()
+        self.snack.raise_()
+        self.snack_timer.start()
+
+    def _run_undo(self) -> None:
+        undo, self._snack_undo = self._snack_undo, None
+        self.snack.hide()
+        if undo:
+            undo()
+
+    def _place_snack(self) -> None:
+        self.snack.move((self.width() - self.snack.width()) // 2, self.height() - self.snack.height() - 32)
 
     # ---- external changes (sync, edits on another tool) ----
 
     def _on_disk_changed(self) -> None:
         self._arm_watcher()
         self.refresh()
-        if self.current is None or not self.current.path:
-            return
-        raw = self.store.read_raw(self.current.path)
-        if raw == self.loaded_raw:
-            return
-        if raw is None:  # deleted elsewhere
-            if not self.dirty:
-                self.current, self.loaded_raw = None, None
-                self.stack.setCurrentWidget(self.placeholder)
-            return
-        disk = next((n for n in self.notes if n.path == self.current.path), None)
-        if disk is None:
-            return
-        if not self.dirty:
-            self.open_note(disk)
-            return
-        box = QMessageBox(self)
-        box.setWindowTitle("Note modifiée ailleurs")
-        box.setText("Ce fichier a changé sur le disque (synchronisation ou autre éditeur) pendant que tu le modifiais.")
-        mine = box.addButton("Garder ma version", QMessageBox.ButtonRole.AcceptRole)
-        box.addButton("Recharger", QMessageBox.ButtonRole.DestructiveRole)
-        box.exec()
-        if box.clickedButton() is mine:
-            self.loaded_raw = raw
-            self.current = self.current.copy(extra=disk.extra)
-            self.save_current()
-        else:
-            self.open_note(disk)
+        if self.stack.currentWidget() is self.editor:
+            self.editor.on_disk_changed(self.notes)
 
     # ---- self-update ----
 
@@ -333,27 +239,33 @@ class MainWindow(QMainWindow):
     def check_updates(self, manual: bool = False) -> None:
         def done(result):
             if isinstance(result, Exception):
+                self.settings.update_status.setText(f"Vérification impossible : {result}")
                 if manual:
                     QMessageBox.warning(self, "Mise à jour", f"Vérification impossible : {result}")
                 return
             if result is None or not updater.is_newer(result):
+                self.settings.update_status.setText("Vous avez la dernière version")
                 if manual:
                     QMessageBox.information(self, "Mise à jour",
                                             f"Tu as la dernière version (build {updater.current_build()}).")
                 return
+            self.settings.update_status.setText(f"Build {result.build} disponible")
             if self.toast is None or self.toast.release.build != result.build:
                 self.toast = UpdateToast(self, result)
             self.toast.place()
             self.toast.show()
 
+        self.settings.update_status.setText("Vérification…")
         run_async(updater.latest, done, done)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if self.toast is not None and self.toast.isVisible():
             self.toast.place()  # stays pinned to the top-right corner
+        if self.snack.isVisible():
+            self._place_snack()
 
     def closeEvent(self, event) -> None:
-        self.save_current()
+        self.editor.close_note()
         self.config.geometry = self.saveGeometry()
         super().closeEvent(event)
