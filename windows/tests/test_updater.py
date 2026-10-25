@@ -65,6 +65,19 @@ def test_install_swaps_the_exe_and_cleanup_removes_the_old_one(tmp_path):
     assert not (tmp_path / "Griffonote.exe.old").exists()
 
 
+def test_install_works_when_the_download_is_in_another_folder(tmp_path):
+    app_dir, other = tmp_path / "app", tmp_path / "temp"
+    app_dir.mkdir()
+    other.mkdir()
+    exe, new = app_dir / "Griffonote.exe", other / "dl.download"
+    exe.write_bytes(b"old")
+    new.write_bytes(b"new")
+    updater.install(str(exe), str(new))
+    assert exe.read_bytes() == b"new"
+    assert sorted(p.name for p in app_dir.iterdir()) == ["Griffonote.exe", "Griffonote.exe.old"]
+    assert not new.exists()
+
+
 def test_install_rolls_back_when_the_new_file_is_missing(tmp_path):
     exe = tmp_path / "Griffonote.exe"
     exe.write_bytes(b"old")

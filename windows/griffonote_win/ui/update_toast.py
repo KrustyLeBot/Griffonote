@@ -36,6 +36,7 @@ class UpdateToast(QFrame):
         self.text = QLabel(f"Griffonote build <b>{release.build}</b> est disponible "
                            f"(tu as le build {updater.current_build()}).")
         self.text.setWordWrap(True)
+        self.text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.text.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(self.text)
 
@@ -59,6 +60,11 @@ class UpdateToast(QFrame):
         self.poll = QTimer(self)  # the download thread only stores its progress; the UI polls it
         self.poll.setInterval(150)
         self.poll.timeout.connect(self._show_progress)
+        self.adjustSize()
+        self.place()
+
+    def _fit(self) -> None:
+        """Grows the card to show the whole (possibly long) message, then keeps it in its corner."""
         self.adjustSize()
         self.place()
 
@@ -106,13 +112,17 @@ class UpdateToast(QFrame):
             self.update_button.clicked.disconnect()
             self.update_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(updater.REPO_URL)))
             self.later.setEnabled(True)
+            self._fit()
             return
         try:
             updater.install(exe, path)
             updater.relaunch(exe)
         except OSError as exc:
             self.text.setText(f"<span style='color:#E5484D'>Impossible de remplacer l'exécutable : {exc}</span>")
+            self.bar.hide()
+            self.update_button.setEnabled(True)
             self.later.setEnabled(True)
+            self._fit()
             return
         self.text.setText("Redémarrage sur la nouvelle version…")
         QTimer.singleShot(300, self.main.close)

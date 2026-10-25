@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,15 +87,28 @@ def download(release: Release, progress: Callable[[int, int], None] | None = Non
 
 def install(current_exe: str, new_file: str) -> str:
     """Puts new_file in place of current_exe, which may be running."""
+    # The download lives in the temp folder, possibly on another drive than the exe (a rename cannot
+    # cross drives): stage a copy next to the exe first, so the final swap is a same-folder rename.
+    staged = current_exe + ".new"
+    shutil.copyfile(new_file, staged)
     old = current_exe + ".old"
-    if os.path.exists(old):
-        os.remove(old)
-    os.replace(current_exe, old)
     try:
-        os.replace(new_file, current_exe)
+        if os.path.exists(old):
+            os.remove(old)
+        os.replace(current_exe, old)
+    except OSError:
+        os.remove(staged)
+        raise
+    try:
+        os.replace(staged, current_exe)
     except OSError:
         os.replace(old, current_exe)  # put the working version back
+        os.remove(staged)
         raise
+    try:
+        os.remove(new_file)
+    except OSError:
+        pass
     return current_exe
 
 
