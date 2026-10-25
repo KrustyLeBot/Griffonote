@@ -58,12 +58,12 @@ def test_keep_conflict_copy_replaces_the_original(tmp_path):
 
 def test_deleting_a_scan_note_deletes_its_pdf(tmp_path):
     from griffonote_win.core.note import Note
-    from griffonote_win.core.store import Store
+    from griffonote_win.core.store import Store, now_ms
     store = Store(tmp_path)
     (tmp_path / "attachments").mkdir()
     pdf = tmp_path / "attachments" / "scan-abc.pdf"
     pdf.write_bytes(b"%PDF-1.4")
-    note = store.save(Note(path="", id="abc123", title="Scan", created=1, updated=1, pdf="attachments/scan-abc.pdf"))
+    note = store.save(Note(path="", id="abc123", title="Scan", created=now_ms(), updated=now_ms(), pdf="attachments/scan-abc.pdf"))
     assert store.pdf_path(note) == pdf
     store.delete(note)
     assert not pdf.exists() and not (tmp_path / note.path).exists()
