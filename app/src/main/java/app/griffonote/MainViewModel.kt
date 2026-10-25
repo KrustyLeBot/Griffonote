@@ -24,6 +24,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
+import app.griffonote.sync.SkipReason
+import app.griffonote.sync.SyncState
+import app.griffonote.sync.SynchrotronClient
 
 enum class Screen { LIST, EDITOR, SETTINGS }
 
@@ -114,6 +117,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var scanJob: Job? = null
 
+    /** A sync with Proton Drive (via Synchrotron) is running: notes are read-only until it ends. */
+    var syncing by mutableStateOf(false)
+        private set
+    /** Synchrotron is installed but does not sync the notes folder yet: offer to set it up. */
+    var offerSyncSetup by mutableStateOf(false)
+        private set
+    private var stopSync: (() -> Unit)? = null
+
     init {
         Updater.cleanup(app)
         repo.onExternalChange = { viewModelScope.launch { delay(400); refresh() } }
@@ -141,7 +152,58 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             refresh()
             repo.startWatching()
             checkExternal()
+            syncOnOpen()
         }
+    }
+
+    // ---- Proton Drive sync through Synchrotron ----
+
+    /**
+     * Asks Synchrotron to sync now, so the notes are up to date when the app opens. The list stays
+     * visible but nothing can be opened or created (read-only) until the sync ends or times out.
+     * Never while a note is being edited.
+     */
+    private fun syncOnOpen() {
+        if (syncing || screen == Screen.EDITOR || settings.storage !is StorageConfig.Default) return
+        stopSync?.invoke()
+        stopSync = SynchrotronClient.syncOnOpen(getApplication(), Settings.defaultDir().path) { state ->
+            when (state) {
+                SyncState.Syncing -> syncing = true
+                is SyncState.Done -> {
+                    syncing = false
+                    if (state.changes > 0) refresh()
+                    when {
+                        state.hasConflicts -> snack = Snack("Conflits de synchro : ouvre les notes marquées")
+                        state.changes > 0 -> snack = Snack("Notes synchronisées (${state.changes} changement${if (state.changes > 1) "s" else ""})")
+                    }
+                }
+                is SyncState.Failed -> { syncing = false; snack = Snack("Échec de la synchro Proton Drive") }
+                SyncState.TimedOut -> { syncing = false; snack = Snack("Synchro longue : elle continue en arrière-plan") }
+                is SyncState.Skipped -> {
+                    syncing = false
+                    offerSyncSetup = state.reason == SkipReason.NOT_REGISTERED && !settings.syncHintDismissed
+                    if (state.reason == SkipReason.NEEDS_SETUP) snack = Snack("Termine la configuration dans Synchrotron")
+                }
+            }
+        }
+    }
+
+    fun setUpSync() {
+        offerSyncSetup = false
+        SynchrotronClient.registerFolder(
+            getApplication(), Settings.defaultDir().path, "Griffonote",
+            remotePath = "Apps/Griffonote", conflictPolicy = "NEWER", intervalMinutes = 60, watchChanges = true,
+            exclusions = listOf(".*.tmp"), // atomic-write temporary files
+        )
+    }
+
+    fun dismissSyncSetup() {
+        offerSyncSetup = false
+        settings.syncHintDismissed = true
+    }
+
+    override fun onCleared() {
+        stopSync?.invoke()
     }
 
     fun onPause() {
@@ -210,6 +272,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---- editor ----
 
     fun newNote(title: String = "", text: String = "", checklist: Boolean = false) {
+        if (syncing) { snack = Snack("Synchronisation en cours…"); return }
         val ed = EditorState(null, isNew = true)
         ed.title = title
         if (checklist) {
@@ -225,6 +288,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openNote(note: Note) {
+        if (syncing) { snack = Snack("Synchronisation en cours…"); return }
         val ed = EditorState(note, isNew = false)
         ed.loadedRaw = note.let { repo.fs.readText(it.path) }
         editor = ed

@@ -51,6 +51,15 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
         },
     ) { padding ->
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState())) {
+            Section("Synchronisation Proton Drive")
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                Text(
+                    "Les notes sont synchronisées par l'application Synchrotron : à l'ouverture, à chaque modification et régulièrement en arrière-plan.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = { vm.setUpSync() }) { Text("Configurer / ouvrir Synchrotron") }
+            }
+            HorizontalDivider()
             Section("Stockage")
             Column(Modifier.padding(horizontal = 16.dp)) {
                 Text("Dossier des notes", style = MaterialTheme.typography.bodyLarge)

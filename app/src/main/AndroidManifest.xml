@@ -12,6 +12,11 @@
     <!-- Sideloaded app: needed to use the shared Documents/Griffonote folder on Android 11+. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
+    <!-- Lets the app see whether Synchrotron (Proton Drive sync) is installed. -->
+    <queries>
+        <package android:name="app.synchrotron" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

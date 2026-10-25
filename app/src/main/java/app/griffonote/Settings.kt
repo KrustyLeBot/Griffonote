@@ -28,6 +28,11 @@ class Settings(context: Context) {
         get() = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM")!!) }.getOrDefault(ThemeMode.SYSTEM)
         set(v) = prefs.edit().putString("theme", v.name).apply()
 
+    /** The user said "later" to the Synchrotron suggestion. */
+    var syncHintDismissed: Boolean
+        get() = prefs.getBoolean("sync_hint_dismissed", false)
+        set(v) = prefs.edit().putBoolean("sync_hint_dismissed", v).apply()
+
     val storage: StorageConfig
         get() = storageUri?.let { StorageConfig.Tree(Uri.parse(it)) } ?: StorageConfig.Default
 

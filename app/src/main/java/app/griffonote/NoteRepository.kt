@@ -35,7 +35,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
         val result = ArrayList<Note>()
         val seen = HashSet<String>()
         for (entry in fs.list("")) {
-            if (entry.isDir || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue
+            if (entry.isDir || !isNoteFile(entry.name) || entry.name.startsWith(".")) continue
             val path = entry.name
             seen.add(path)
             val cached = parsed[path]
@@ -61,7 +61,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
         observers = listOf(
             object : FileObserver(dir.absolutePath, mask) {
                 override fun onEvent(event: Int, path: String?) {
-                    if (path != null && path.endsWith(".md")) onExternalChange?.invoke()
+                    if (path != null && isNoteFile(path)) onExternalChange?.invoke()
                 }
             }.also { it.startWatching() },
         )
@@ -74,6 +74,9 @@ class NoteRepository(private val context: Context, private val settings: Setting
 
     /** Called (from an arbitrary thread) when a `.md` file changed on disk. */
     var onExternalChange: (() -> Unit)? = null
+
+    /** A note, or a conflict copy left by the sync tool (`name.md.conflict1`, `name.md.conflict2`). */
+    private fun isNoteFile(name: String) = name.endsWith(".md") || CONFLICT_COPY.matches(name)
 
     fun existingLabels(): List<String> =
         _notes.value.flatMap { it.labels }.distinct().sortedBy { it.fold() }
@@ -114,9 +117,14 @@ class NoteRepository(private val context: Context, private val settings: Setting
         val kept = copy.copy(path = targetPath, conflict = false, updated = System.currentTimeMillis())
         fs.writeText(targetPath, NoteFormat.serialize(kept))
         if (targetPath != copy.path) fs.delete(copy.path)
+        // Synchrotron leaves one copy per side (.conflict1 / .conflict2): resolving keeps one, drops the others.
+        _notes.value.filter { it.conflict && it.id == copy.id && it.path != copy.path }.forEach {
+            fs.delete(it.path)
+            parsed.remove(it.path)
+        }
         parsed.remove(copy.path)
         parsed[targetPath] = fs.lastModified(targetPath) to kept
-        _notes.value = _notes.value.filter { it.path != copy.path && it.path != targetPath } + kept
+        _notes.value = _notes.value.filter { it.path != copy.path && it.path != targetPath && !(it.conflict && it.id == copy.id) } + kept
         return kept
     }
 
@@ -136,4 +144,8 @@ class NoteRepository(private val context: Context, private val settings: Setting
     }
 
     fun buildFsFor(config: StorageConfig): Fs = buildFs(config)
+
+    private companion object {
+        val CONFLICT_COPY = Regex(""".+\.md\.conflict\d+""")
+    }
 }

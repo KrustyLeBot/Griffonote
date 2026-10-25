@@ -164,6 +164,36 @@ fun ListScreen(vm: MainViewModel) {
                 }
             }
 
+            if (vm.syncing) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Column {
+                        Text(
+                            "Synchronisation avec Proton Drive… (lecture seule)",
+                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
+                        )
+                        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                }
+            } else if (vm.offerSyncSetup) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Column(Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 4.dp)) {
+                        Text("Retrouve tes notes sur tous tes appareils : synchronise-les avec Proton Drive.")
+                        Row {
+                            TextButton(onClick = { vm.setUpSync() }) { Text("Configurer") }
+                            TextButton(onClick = { vm.dismissSyncSetup() }) { Text("Plus tard") }
+                        }
+                    }
+                }
+            }
+
             val update = vm.updateState
             if (update is Updater.State.Available) {
                 Surface(
