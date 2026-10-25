@@ -8,3 +8,9 @@ local.properties
 *.iml
 .DS_Store
 .kotlin/
+__pycache__/
+*.pyc
+windows/build/
+windows/dist/
+*.spec
+.pytest_cache/

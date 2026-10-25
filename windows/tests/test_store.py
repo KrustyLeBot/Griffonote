@@ -1,0 +1,56 @@
+import time
+
+from griffonote_win.core import note as fmt
+from griffonote_win.core.store import Store, now_ms
+
+
+def make(store, title, body=""):
+    return store.save(fmt.Note(path="", id=fmt.generate_id(), title=title, body=body, created=now_ms(), updated=now_ms()))
+
+
+def test_first_save_fixes_the_file_name_and_never_renames(tmp_path):
+    store = Store(tmp_path)
+    n = make(store, "Courses")
+    assert n.path == f"courses-{n.id}.md"
+    renamed = store.save(n.copy(title="Autre titre"))
+    assert renamed.path == n.path
+    assert [p.name for p in tmp_path.glob("*.md")] == [n.path]
+
+
+def test_scan_reads_notes_and_ignores_temp_files(tmp_path):
+    store = Store(tmp_path)
+    make(store, "Une", "texte")
+    (tmp_path / ".x.md.tmp").write_text("junk")
+    (tmp_path / "autre.txt").write_text("junk")
+    (tmp_path / "sans-frontmatter.md").write_text("Bonjour")
+    titles = sorted(n.title for n in store.scan())
+    assert titles == ["Une", "sans frontmatter"]
+
+
+def test_scan_picks_up_external_edits(tmp_path):
+    store = Store(tmp_path)
+    n = make(store, "Note", "v1")
+    time.sleep(0.02)
+    fresh = (tmp_path / n.path).read_text().replace("v1", "v2")
+    (tmp_path / n.path).write_text(fresh)
+    assert store.scan()[0].body == "v2"
+
+
+def test_delete_removes_the_file(tmp_path):
+    store = Store(tmp_path)
+    n = make(store, "A supprimer")
+    store.delete(n)
+    assert store.scan() == []
+    store.delete(n)  # idempotent
+
+
+def test_keep_conflict_copy_replaces_the_original(tmp_path):
+    store = Store(tmp_path)
+    original = make(store, "Courses", "ancien")
+    copy_text = fmt.serialize(original.copy(body="nouveau"))
+    (tmp_path / f"courses-{original.id}.conflict-1.md").write_text(copy_text)
+    copy = next(n for n in store.scan() if n.conflict)
+    kept = store.keep_conflict_copy(copy)
+    assert kept.path == original.path
+    notes = store.scan()
+    assert len(notes) == 1 and notes[0].body == "nouveau" and not notes[0].conflict

@@ -26,6 +26,23 @@ checked items folded), colours, pin, labels, full-text search,
 grid/list view, share in/out (text), conflict-file badge, external-change handling,
 settings, self-update. Images, drawings and reminders (milestones 3–5) are not done yet.
 
+## Windows client
+
+`windows/` holds a Python 3.12 + PySide6 desktop client that works on the same notes folder
+(pick it at first launch; it is remembered). It reads and writes the same Markdown files,
+atomically, watches the folder for changes made by the sync tool, and updates itself from
+the `latest` release (checks size and SHA-256, swaps the exe, restarts).
+
+```
+cd windows
+pip install -r requirements.txt pytest
+python -m pytest tests -q
+python run.py
+```
+
+The CI builds `Griffonote.exe` (PyInstaller, one file) and publishes it next to the APK in the
+`latest` release. The exe is not signed, so SmartScreen may warn the first time.
+
 ## Build
 
 ```
