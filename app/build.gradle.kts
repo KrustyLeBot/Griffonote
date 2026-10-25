@@ -39,6 +39,11 @@ android {
                 signingConfig = signingConfigs.getByName("shared")
             }
         }
+        // What the CI ships: not debuggable, signed with the same key as before so it updates in place.
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName(if (System.getenv("KEYSTORE_PATH") != null) "shared" else "debug")
+        }
     }
 
     buildFeatures {

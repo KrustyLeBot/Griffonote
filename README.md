@@ -46,10 +46,10 @@ The CI builds `Griffonote.exe` (PyInstaller, one file) and publishes it next to 
 ## Build
 
 ```
-./gradlew assembleDebug
+./gradlew assembleRelease
 ```
 
-Local builds use Android's default debug key. CI (`.github/workflows/build-apk.yml`) signs
+Local builds use Android's default debug key (release builds fall back to it without the CI key). CI (`.github/workflows/build-apk.yml`) signs
 builds with a private key stored in the `release` GitHub environment and publishes the
 rolling `latest` release that the in-app updater reads.
 

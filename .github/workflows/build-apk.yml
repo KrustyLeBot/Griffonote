@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@94baf225fe0a508e581a564467443d0e2379123b # v4.3.0
-      - run: ./gradlew testDebugUnitTest assembleDebug --console=plain
+      - run: ./gradlew testDebugUnitTest assembleRelease --console=plain
 
   # Pushes to main (and manual runs): signed build + "latest" release.
   apk:
@@ -44,7 +44,7 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - name: Build debug APK
+      - name: Build release APK
         shell: bash
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -52,14 +52,14 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest assembleDebug --console=plain 2>&1 | tee build.log
+          ./gradlew testDebugUnitTest assembleRelease --console=plain 2>&1 | tee build.log
 
       - name: Remove signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
       - name: Stage the APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk griffonote.apk
+        run: cp app/build/outputs/apk/release/app-release.apk griffonote.apk
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
