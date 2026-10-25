@@ -67,7 +67,9 @@ fun PdfViewerScreen(vm: MainViewModel, path: String) {
             null
         }
     }
-    DisposableEffect(pages) { onDispose { pages?.close() } }
+    // Capture the document: reading `pages` inside onDispose would give the newest one, not this one.
+    val opened = pages
+    DisposableEffect(opened) { onDispose { opened?.close() } }
 
     Scaffold(
         topBar = {
@@ -138,8 +140,10 @@ private fun ZoomablePages(doc: PdfPages) {
 @Composable
 private fun Page(doc: PdfPages, index: Int, aspect: Float, widthPx: Int) {
     // Rendered a bit larger than the screen so that zoomed text stays readable.
-    val bitmap by produceState<Bitmap?>(null, index, widthPx) { value = doc.render(index, (widthPx * 1.5f).toInt()) }
-    DisposableEffect(bitmap) { onDispose { bitmap?.recycle() } }
+    // Bitmaps are left to the garbage collector: recycling one Compose may still draw crashes the app.
+    val bitmap by produceState<Bitmap?>(null, index, widthPx) {
+        value = runCatching { doc.render(index, (widthPx * 1.5f).toInt()) }.getOrNull()
+    }
     Box(Modifier.fillMaxWidth().aspectRatio(aspect).background(Color.White)) {
         bitmap?.let {
             Image(it.asImageBitmap(), "Page ${index + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
