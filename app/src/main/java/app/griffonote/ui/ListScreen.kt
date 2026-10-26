@@ -193,20 +193,6 @@ fun ListScreen(vm: MainViewModel, onScan: () -> Unit) {
                 ) {
                     Text(vm.syncNotice.orEmpty(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                 }
-            } else if (vm.offerSyncSetup) {
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Column(Modifier.padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 4.dp)) {
-                        Text("Retrouve tes notes sur tous tes appareils : synchronise-les avec Proton Drive.")
-                        Row {
-                            TextButton(onClick = { vm.setUpSync() }) { Text("Configurer") }
-                            TextButton(onClick = { vm.dismissSyncSetup() }) { Text("Plus tard") }
-                        }
-                    }
-                }
             }
 
             val update = vm.updateState

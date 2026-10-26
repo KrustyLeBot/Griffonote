@@ -128,9 +128,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** A sync with Proton Drive (via Synchrotron) is running: notes are read-only until it ends. */
     var syncing by mutableStateOf(false)
         private set
-    /** Synchrotron is installed but does not sync the notes folder yet: offer to set it up. */
-    var offerSyncSetup by mutableStateOf(false)
-        private set
     private var stopSync: (() -> Unit)? = null
 
     /** Short result line of the last sync ("3 changements"), shown in the banner and gone after a few seconds. */
@@ -203,25 +200,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 SyncState.TimedOut -> { syncing = false; showSyncNotice("Synchro longue : elle continue en arrière-plan") }
                 is SyncState.Skipped -> {
                     syncing = false
-                    offerSyncSetup = state.reason == SkipReason.NOT_REGISTERED && !settings.syncHintDismissed
                     if (state.reason == SkipReason.NEEDS_SETUP) showSyncNotice("Termine la configuration dans Synchrotron")
                 }
             }
         }
-    }
-
-    fun setUpSync() {
-        offerSyncSetup = false
-        SynchrotronClient.registerFolder(
-            getApplication(), Settings.defaultDir().path, "Griffonote",
-            remotePath = "Apps/Griffonote", conflictPolicy = "NEWER", intervalMinutes = 60, watchChanges = true,
-            exclusions = listOf(".*.tmp"), // atomic-write temporary files
-        )
-    }
-
-    fun dismissSyncSetup() {
-        offerSyncSetup = false
-        settings.syncHintDismissed = true
     }
 
     override fun onCleared() {

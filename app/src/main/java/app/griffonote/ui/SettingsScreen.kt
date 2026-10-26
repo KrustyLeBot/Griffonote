@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.griffonote.BuildConfig
 import app.griffonote.MainViewModel
+import app.griffonote.Settings
 import app.griffonote.StorageConfig
 import app.griffonote.ThemeMode
 import app.griffonote.Updater
@@ -55,10 +56,10 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
             Section("Synchronisation Proton Drive")
             Column(Modifier.padding(horizontal = 16.dp)) {
                 Text(
-                    "Les notes sont synchronisées par l'application Synchrotron : à l'ouverture, à chaque modification et régulièrement en arrière-plan.",
+                    "Ajoute le dossier ${Settings.defaultDir().path} dans l'application Synchrotron : Griffonote lui demande " +
+                        "une synchro à chaque ouverture, et les notes sont en lecture seule le temps qu'elle se termine.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                TextButton(onClick = { vm.setUpSync() }) { Text("Configurer / ouvrir Synchrotron") }
             }
             HorizontalDivider()
             Section("Stockage")

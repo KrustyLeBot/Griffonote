@@ -29,11 +29,6 @@ class Settings(context: Context) {
         get() = runCatching { ThemeMode.valueOf(prefs.getString("theme", "SYSTEM")!!) }.getOrDefault(ThemeMode.SYSTEM)
         set(v) = prefs.edit().putString("theme", v.name).apply()
 
-    /** The user said "later" to the Synchrotron suggestion. */
-    var syncHintDismissed: Boolean
-        get() = prefs.getBoolean("sync_hint_dismissed", false)
-        set(v) = prefs.edit().putBoolean("sync_hint_dismissed", v).apply()
-
     var scanFormat: ScanFormat
         get() = runCatching { ScanFormat.valueOf(prefs.getString("scan_format", "AUTO")!!) }.getOrDefault(ScanFormat.AUTO)
         set(v) = prefs.edit().putString("scan_format", v.name).apply()
