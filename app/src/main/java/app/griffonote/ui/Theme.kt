@@ -1,30 +1,11 @@
 package app.griffonote.ui
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import app.griffonote.DEFAULT_COLOR
 import app.griffonote.ThemeMode
-
-private val LightScheme = lightColorScheme(
-    primary = Color(0xFF8A5A00),
-    secondary = Color(0xFF6E5C3E),
-    background = Color(0xFFFFFBFF),
-    surface = Color(0xFFFFFBFF),
-)
-private val DarkScheme = darkColorScheme(
-    primary = Color(0xFFFFB950),
-    secondary = Color(0xFFDBC3A0),
-    background = Color(0xFF1E1B16),
-    surface = Color(0xFF1E1B16),
-)
 
 @Composable
 fun GriffonoteTheme(mode: ThemeMode, content: @Composable () -> Unit) {
@@ -33,14 +14,7 @@ fun GriffonoteTheme(mode: ThemeMode, content: @Composable () -> Unit) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val context = LocalContext.current
-    val scheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> DarkScheme
-        else -> LightScheme
-    }
-    MaterialTheme(colorScheme = scheme, content = content)
+    MaterialTheme(colorScheme = if (dark) SuiteDarkColors else SuiteLightColors, shapes = SuiteShapes, content = content)
 }
 
 /** Keep-like palette: (id, French label, light, dark). */

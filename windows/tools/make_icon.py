@@ -1,47 +1,38 @@
-"""Draws the app icon (PNG + ICO) with Qt only. Run: python tools/make_icon.py"""
+"""Draws the Griffonote icon, the same as the Android launcher icon (amber gradient, white note sheet), as icon.png and icon.ico.
+
+Usage: python tools/make_icon.py   (needs PySide6 and Pillow)
+"""
 import os
 import sys
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPen
+from PIL import Image
+from PySide6.QtCore import QByteArray
+from PySide6.QtGui import QGuiApplication, QImage, QPainter
+from PySide6.QtSvg import QSvgRenderer
 
+# The launcher icon's 108-unit grid, cropped to its visible 72-unit square.
+SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72">
+  <defs><linearGradient id="g" x1="10" y1="0" x2="98" y2="108" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#FFC547"/><stop offset="1" stop-color="#E07B00"/></linearGradient></defs>
+  <rect x="18" y="18" width="72" height="72" rx="16" fill="url(#g)"/>
+  <g transform="translate(54 54) scale(0.92) translate(-54 -54)">
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M34,30h40a4,4 0 0 1 4,4v32l-12,12H34a4,4 0 0 1 -4,-4V34a4,4 0 0 1 4,-4z M40,42h28v3H40z M40,50h28v3H40z M40,58h18v3H40z"/>
+    <path fill="#FFE2A6" d="M66,78v-8a4,4 0 0 1 4,-4h8z"/>
+  </g>
+</svg>"""
+
+out = Path(__file__).resolve().parent.parent / "griffonote_win" / "assets"
+out.mkdir(parents=True, exist_ok=True)
 app = QGuiApplication(sys.argv)
-size = 256
-image = QImage(size, size, QImage.Format.Format_ARGB32)
-image.fill(Qt.GlobalColor.transparent)
-p = QPainter(image)
-p.setRenderHint(QPainter.RenderHint.Antialiasing)
-p.setBrush(QColor("#F9A825"))
-p.setPen(Qt.PenStyle.NoPen)
-p.drawRoundedRect(QRectF(8, 8, 240, 240), 56, 56)
-# the note sheet with a folded corner
-sheet = QPainterPath()
-sheet.moveTo(70, 56)
-sheet.lineTo(150, 56)
-sheet.lineTo(190, 96)
-sheet.lineTo(190, 200)
-sheet.lineTo(70, 200)
-sheet.closeSubpath()
-p.setBrush(QColor("#FFFFFF"))
-p.drawPath(sheet)
-p.setBrush(QColor("#E0B050"))
-fold = QPainterPath()
-fold.moveTo(150, 56)
-fold.lineTo(190, 96)
-fold.lineTo(150, 96)
-fold.closeSubpath()
-p.drawPath(fold)
-# text lines
-p.setBrush(QColor("#5D4037"))
-for y, w in [(116, 90), (136, 90), (156, 56)]:
-    p.drawRoundedRect(QRectF(88, y, w, 8), 4, 4)
-p.end()
-
-assets = Path(__file__).resolve().parent.parent / "griffonote_win" / "assets"
-assets.mkdir(parents=True, exist_ok=True)
-image.save(str(assets / "icon.png"))
-image.save(str(assets / "icon.ico"))
-print("written", assets)
+image = QImage(256, 256, QImage.Format.Format_ARGB32)
+image.fill(0)
+painter = QPainter(image)
+painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+QSvgRenderer(QByteArray(SVG.encode())).render(painter)
+painter.end()
+image.save(str(out / "icon.png"))
+Image.open(out / "icon.png").save(out / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+print("written", out)
