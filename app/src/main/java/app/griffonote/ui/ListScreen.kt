@@ -63,7 +63,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.griffonote.MainViewModel
 import app.griffonote.Note
-import app.griffonote.Updater
+import app.griffonote.suite.SuiteBanner
+import app.griffonote.suite.UpdateBanner
+import androidx.compose.material.icons.filled.Sync
 import app.griffonote.fold
 
 private fun filterNotes(notes: List<Note>, label: String?, query: String): List<Note> {
@@ -131,7 +133,7 @@ fun ListScreen(vm: MainViewModel, onScan: () -> Unit) {
                     Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Box(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                         if (vm.query.isEmpty()) {
-                            Text("Rechercher dans vos notes", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Rechercher dans tes notes", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         BasicTextField(
                             value = vm.query,
@@ -172,42 +174,9 @@ fun ListScreen(vm: MainViewModel, onScan: () -> Unit) {
             }
 
             if (vm.syncing) {
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Column {
-                        Text(
-                            "Synchronisation avec Proton Drive… (lecture seule)",
-                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
-                        )
-                        androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
-                }
-            } else if (vm.syncNotice != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Text(vm.syncNotice.orEmpty(), modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-                }
-            }
-
-            val update = vm.updateState
-            if (update is Updater.State.Available) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Row(Modifier.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Mise à jour disponible (build ${update.info.build})", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { vm.downloadAndInstall() }) { Text("Installer") }
-                    }
-                }
-            }
+                SuiteBanner("Notes en lecture seule le temps de la synchro.", title = "Synchronisation avec Proton Drive", icon = Icons.Default.Sync, progress = -1f)
+            } else vm.syncNotice?.let { SuiteBanner(it) }
+            UpdateBanner(vm.updates)
 
             if (visible.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -222,7 +191,7 @@ fun ListScreen(vm: MainViewModel, onScan: () -> Unit) {
                             modifier = Modifier.padding(top = 8.dp),
                         )
                         if (vm.query.isBlank() && vm.labelFilter == null) {
-                            Text("Appuyez sur « Note » pour commencer", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Touche « Note » pour commencer", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

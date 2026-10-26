@@ -27,10 +27,10 @@ fun PermissionScreen(storage: StorageConfig, onGrant: () -> Unit, onPickFolder: 
             Text("Griffonote", style = MaterialTheme.typography.headlineLarge)
             Text(
                 if (storage is StorageConfig.Default) {
-                    "Vos notes sont de simples fichiers dans Documents/Griffonote, pour que votre app de " +
+                    "Tes notes sont de simples fichiers dans Documents/Griffonote, pour que ton app de " +
                         "synchronisation puisse les récupérer. Griffonote a besoin d'y accéder."
                 } else {
-                    "L'accès au dossier choisi a été perdu. Sélectionnez-le à nouveau."
+                    "L'accès au dossier choisi a été perdu. Sélectionne-le à nouveau."
                 },
                 textAlign = TextAlign.Center,
             )

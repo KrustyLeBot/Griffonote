@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
             owner.lifecycle.addObserver(observer)
             onDispose { owner.lifecycle.removeObserver(observer) }
         }
-        LaunchedEffect(Unit) { vm.checkUpdateSilently() }
+        LaunchedEffect(Unit) { vm.updates.checkOnOpen() }
 
         GriffonoteTheme(vm.theme) {
             BackHandler(enabled = vm.screen != Screen.LIST || vm.query.isNotEmpty() || vm.labelFilter != null) {

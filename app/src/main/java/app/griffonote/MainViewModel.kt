@@ -1,5 +1,7 @@
 package app.griffonote
 
+import app.griffonote.suite.SuiteUpdater
+import app.griffonote.suite.SuiteUpdates
 import android.Manifest
 import android.app.Application
 import android.content.pm.PackageManager
@@ -121,7 +123,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var storageLabel by mutableStateOf("")
     var storageReady by mutableStateOf(false)
     var pendingStorage by mutableStateOf<StorageConfig?>(null)
-    var updateState by mutableStateOf<Updater.State>(Updater.State.Idle)
+    val updates = SuiteUpdates(app, SuiteUpdater(app, "KrustyLeBot/Griffonote", "${app.packageName}.fileprovider"), viewModelScope)
 
     private var scanJob: Job? = null
 
@@ -145,7 +147,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
-        Updater.cleanup(app)
         repo.onExternalChange = { viewModelScope.launch { delay(400); refresh() } }
         storageReady = checkStorageReady()
         if (storageReady) refresh()
@@ -522,46 +523,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun allLabels(): List<String> =
         notes.value.flatMap { it.labels }.distinct().sortedBy { it.fold() }
-
-    // ---- updates ----
-
-    fun checkUpdate() {
-        if (updateState is Updater.State.Checking || updateState is Updater.State.Downloading) return
-        updateState = Updater.State.Checking
-        viewModelScope.launch {
-            updateState = try {
-                val info = withContext(Dispatchers.IO) { Updater.check() }
-                if (info == null) Updater.State.UpToDate else Updater.State.Available(info)
-            } catch (e: Exception) {
-                Updater.State.Error(e.message ?: "Erreur réseau")
-            }
-        }
-    }
-
-    /** Silent check at launch: stays quiet unless an update exists. */
-    fun checkUpdateSilently() {
-        viewModelScope.launch {
-            val info = try { withContext(Dispatchers.IO) { Updater.check() } } catch (_: Exception) { null }
-            if (info != null && updateState is Updater.State.Idle) updateState = Updater.State.Available(info)
-        }
-    }
-
-    fun downloadAndInstall() {
-        val info = (updateState as? Updater.State.Available)?.info ?: return
-        val ctx = getApplication<Application>()
-        updateState = Updater.State.Downloading(0)
-        viewModelScope.launch {
-            try {
-                val apk = withContext(Dispatchers.IO) {
-                    Updater.download(ctx, info) { p -> updateState = Updater.State.Downloading(p) }
-                }
-                updateState = Updater.State.Available(info)
-                Updater.install(ctx, apk)
-            } catch (e: Exception) {
-                updateState = Updater.State.Error(e.message ?: "Échec du téléchargement")
-            }
-        }
-    }
 
     fun pickedTree(uri: Uri) {
         requestStorageChange(StorageConfig.Tree(uri))

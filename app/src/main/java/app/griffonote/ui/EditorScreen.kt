@@ -497,7 +497,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Note modifiée ailleurs") },
-            text = { Text("Ce fichier a changé sur le disque (synchronisation ou édition sur PC) pendant que vous le modifiiez.") },
+            text = { Text("Ce fichier a changé sur le disque (synchronisation ou édition sur PC) pendant que tu le modifiais.") },
             confirmButton = { TextButton(onClick = { vm.resolveExternal(keepMine = true) }) { Text("Garder ma version") } },
             dismissButton = { TextButton(onClick = { vm.resolveExternal(keepMine = false) }) { Text("Recharger") } },
         )
