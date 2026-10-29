@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QTimer, Qt
+from PySide6.QtCore import QEvent, QFileSystemWatcher, QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                                QPushButton, QStackedWidget)
@@ -96,6 +96,12 @@ class MainWindow(QMainWindow):
         self.watch_timer.timeout.connect(self._on_disk_changed)
         self.watcher.directoryChanged.connect(lambda _: self.watch_timer.start())
         self.watcher.fileChanged.connect(lambda _: self.watch_timer.start())
+        # Over the server's SMB share Windows does not always report changes: also look every 30 s and
+        # whenever the window comes back to the front.
+        self._snapshot = None
+        self.poll_timer = QTimer(self, interval=30_000)
+        self.poll_timer.timeout.connect(self._poll_disk)
+        self.poll_timer.start()
 
         # ---- self-update ----
         self._cleanup_timer = QTimer(self)
@@ -157,8 +163,19 @@ class MainWindow(QMainWindow):
             self.show_settings()
 
     def refresh(self) -> None:
+        self._snapshot = self.store.snapshot()
         self.notes = self.store.scan()
         self.list_screen.set_notes(self.notes)
+
+    def _poll_disk(self) -> None:
+        snapshot = self.store.snapshot()
+        if snapshot is not None and snapshot != self._snapshot:
+            self.watch_timer.start()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._poll_disk()
 
     def _grid_changed(self, grid: bool) -> None:
         self.config.grid = grid

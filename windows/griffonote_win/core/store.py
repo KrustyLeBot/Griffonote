@@ -57,6 +57,15 @@ class Store:
         except (OSError, UnicodeDecodeError):
             return None
 
+    def snapshot(self):
+        """Cheap fingerprint of the folder (names, times, sizes): tells whether another device changed it.
+        None when the folder cannot be read right now (share offline)."""
+        try:
+            return tuple(sorted((e.name, e.stat().st_mtime_ns, e.stat().st_size)
+                                for e in os.scandir(self.root) if e.is_file() and not e.name.startswith(".")))
+        except OSError:
+            return None
+
     def labels(self) -> list[str]:
         return sorted({lbl for n in self.scan() for lbl in n.labels}, key=fmt.fold)
 

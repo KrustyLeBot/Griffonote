@@ -235,3 +235,20 @@ def test_update_toast_shows_when_a_newer_build_exists(window, monkeypatch):
     window.toast.show()
     assert window.toast.isVisible()
     assert window.toast.x() > window.width() // 2
+
+
+def test_change_on_the_share_is_picked_up_without_a_watcher_event(window, tmp_path):
+    """Over SMB Windows may not report the phone's changes: the periodic check finds them."""
+    window.watcher.blockSignals(True)
+    window.watch_timer.stop()
+    window._poll_disk()
+    assert not window.watch_timer.isActive()  # nothing changed: no reload
+    (tmp_path / "from-phone.md").write_text("---\nid: p1\n---\nNote du téléphone\n", encoding="utf-8")
+    window._poll_disk()
+    assert window.watch_timer.isActive()  # the change is seen, the usual debounced reload follows
+    window.watch_timer.stop()
+    window._on_disk_changed()
+    assert "from-phone.md" in [n.path for n in window.notes]
+    window._poll_disk()
+    assert not window.watch_timer.isActive()
+    window.watcher.blockSignals(False)
