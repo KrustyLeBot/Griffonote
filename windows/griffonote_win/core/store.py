@@ -6,6 +6,7 @@ import re
 import time
 from pathlib import Path
 
+from . import atomic
 from . import note as fmt
 from .note import Note
 
@@ -62,15 +63,7 @@ class Store:
     # ---- writing ----
 
     def _write(self, path: str, text: str) -> None:
-        """Atomic: write a temporary file, then rename over the target (the sync tool never sees half a file)."""
-        target = self.root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(f".{target.name}.tmp")
-        with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp, target)
+        atomic.write_text(self.root / path, text)
 
     def save(self, note: Note) -> Note:
         """Writes the note; the file is created (and its name fixed) on the first save."""

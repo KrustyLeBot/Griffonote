@@ -5,6 +5,9 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 /**
  * Minimal file-system abstraction over the storage root, so the app can work on
@@ -16,7 +19,7 @@ interface Fs {
 
     fun list(dir: String): List<Entry>
     fun readBytes(path: String): ByteArray?
-    /** Atomic: never exposes a half-written file to the sync app. */
+    /** Atomic: never exposes a half-written file to the sync app, the server or a PC reading it. */
     fun writeBytes(path: String, bytes: ByteArray)
     fun delete(path: String)
     fun exists(path: String): Boolean
@@ -34,6 +37,14 @@ interface Fs {
     }
 }
 
+/**
+ * Temporary of an atomic write, in the same folder: `.<name>.synctmp-<uuid>`. Synchrotron never syncs
+ * that pattern, and no app file may use it.
+ */
+fun tempName(name: String) = ".$name.synctmp-${UUID.randomUUID()}"
+
+fun isTempName(name: String) = name.startsWith(".") && (name.contains(".synctmp-") || name.endsWith(".tmp"))
+
 class FileFs(val root: File) : Fs {
     private fun file(path: String) = if (path.isEmpty()) root else File(root, path)
 
@@ -49,17 +60,17 @@ class FileFs(val root: File) : Fs {
     override fun writeBytes(path: String, bytes: ByteArray) {
         val target = file(path)
         target.parentFile?.mkdirs()
-        val tmp = File(target.parentFile, ".${target.name}.tmp")
-        FileOutputStream(tmp).use { out ->
-            out.write(bytes)
-            out.fd.sync()
-        }
-        if (!tmp.renameTo(target)) {
-            target.delete()
-            if (!tmp.renameTo(target)) {
-                tmp.delete()
-                throw java.io.IOException("Cannot write $path")
+        val tmp = File(target.parentFile, tempName(target.name))
+        try {
+            FileOutputStream(tmp).use { out ->
+                out.write(bytes)
+                out.flush()
+                out.fd.sync()
             }
+            Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (e: Exception) {
+            tmp.delete()
+            throw e
         }
     }
 
@@ -131,12 +142,18 @@ class SafFs(private val context: Context, private val treeUri: Uri) : Fs {
         val dirPath = path.substringBeforeLast('/', "")
         val name = path.substringAfterLast('/')
         val dir = ensureDir(dirPath) ?: throw java.io.IOException("Cannot open folder $dirPath")
-        val tmpName = ".$name.tmp"
-        dir.findFile(tmpName)?.delete()
+        val tmpName = tempName(name)
         val tmp = dir.createFile("application/octet-stream", tmpName)
             ?: throw java.io.IOException("Cannot create $tmpName")
         try {
-            resolver.openOutputStream(tmp.uri, "wt")!!.use { it.write(bytes) }
+            resolver.openFileDescriptor(tmp.uri, "wt")!!.use { pfd ->
+                FileOutputStream(pfd.fileDescriptor).use { out ->
+                    out.write(bytes)
+                    out.flush()
+                    out.fd.sync()
+                }
+            }
+            // SAF cannot rename over a file: the old one goes first, for an instant.
             resolve(path)?.delete()
             cache.remove(path)
             if (!tmp.renameTo(name)) throw java.io.IOException("Cannot rename to $name")

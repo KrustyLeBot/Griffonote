@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QFrame, QHBoxLayout, Q
                                QPushButton, QStackedWidget)
 
 from ..config import Config
+from ..core import atomic
 from ..core import note as fmt
 from ..core.note import Note
 from ..core.store import Store, now_ms
@@ -209,7 +210,7 @@ class MainWindow(QMainWindow):
 
             def undo() -> None:
                 if pdf is not None and pdf_bytes is not None:
-                    pdf.write_bytes(pdf_bytes)
+                    atomic.write_bytes(pdf, pdf_bytes)
                 self.store.save(note)
                 self.refresh()
 

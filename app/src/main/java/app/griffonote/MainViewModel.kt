@@ -197,7 +197,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         state.changes > 0 -> showSyncNotice("Synchronisé · ${state.changes} changement${if (state.changes > 1) "s" else ""}")
                     }
                 }
-                is SyncState.Failed -> { syncing = false; showSyncNotice("Échec de la synchro Proton Drive") }
+                is SyncState.Failed -> { syncing = false; showSyncNotice("Échec de la synchro") }
                 SyncState.TimedOut -> { syncing = false; showSyncNotice("Synchro longue : elle continue en arrière-plan") }
                 is SyncState.Skipped -> {
                     syncing = false

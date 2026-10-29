@@ -135,7 +135,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
             for (e in fs.list(dir)) {
                 val p = if (dir.isEmpty()) e.name else "$dir/${e.name}"
                 if (e.isDir) walk(p)
-                else if (!(e.name.startsWith(".") && e.name.endsWith(".tmp"))) {
+                else if (!isTempName(e.name)) {
                     fs.readBytes(p)?.let { target.writeBytes(p, it) }
                     if (deleteSource) fs.delete(p)
                 }

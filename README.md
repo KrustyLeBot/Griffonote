@@ -18,7 +18,7 @@ Griffonote/
   US Letter (guessed from the page shape, or fixed in the settings), compressed for a fast sync.
 - The file name is fixed at creation (`<slug>-<id6>.md`) and never renamed.
 - Unknown frontmatter fields are preserved verbatim.
-- Writes are atomic (temporary file, then rename).
+- Writes are atomic: `.<name>.synctmp-<uuid>` in the same folder, flushed to disk, then renamed over the file (Synchrotron never syncs that pattern).
 - The folder is the source of truth; the in-memory index is rebuilt on launch, on resume
   and when files change on disk.
 

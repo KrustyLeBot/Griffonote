@@ -67,3 +67,15 @@ def test_deleting_a_scan_note_deletes_its_pdf(tmp_path):
     assert store.pdf_path(note) == pdf
     store.delete(note)
     assert not pdf.exists() and not (tmp_path / note.path).exists()
+
+
+def test_atomic_write_leaves_no_temporary(tmp_path):
+    from griffonote_win.core import atomic
+
+    target = tmp_path / "sub" / "a.md"
+    atomic.write_text(target, "one")
+    atomic.write_text(target, "two")
+    assert target.read_text(encoding="utf-8") == "two"
+    assert [p.name for p in target.parent.iterdir()] == ["a.md"]
+    assert atomic.is_temp(atomic.temp_name("a.md"))
+    assert atomic.temp_name("a.md").startswith(".a.md.synctmp-")

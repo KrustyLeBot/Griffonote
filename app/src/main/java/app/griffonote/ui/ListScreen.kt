@@ -174,7 +174,7 @@ fun ListScreen(vm: MainViewModel, onScan: () -> Unit) {
             }
 
             if (vm.syncing) {
-                SuiteBanner("Notes en lecture seule le temps de la synchro.", title = "Synchronisation avec Proton Drive", icon = Icons.Default.Sync, progress = -1f)
+                SuiteBanner("Notes en lecture seule le temps de la synchro.", title = "Synchronisation", icon = Icons.Default.Sync, progress = -1f)
             } else vm.syncNotice?.let { SuiteBanner(it) }
             UpdateBanner(vm.updates)
 
