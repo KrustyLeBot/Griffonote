@@ -26,7 +26,7 @@ COLORS = {
     "gray": "Graphite",
 }
 
-_KNOWN = {"id", "title", "color", "pinned", "labels", "reminder", "pdf", "created", "updated"}
+_KNOWN = {"id", "title", "color", "pinned", "labels", "reminder", "pdf", "attachments", "created", "updated"}
 _KEY_RE = re.compile(r"^([A-Za-z_][\w-]*):[ \t]*(.*)$")
 _ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 CHECK_RE = re.compile(r"^\s*[-*+] \[( |x|X)\] ?(.*)$")
@@ -43,6 +43,7 @@ class Note:
     labels: list[str] = field(default_factory=list)
     reminder: int | None = None  # epoch millis, preserved untouched
     pdf: str | None = None  # scanned document, relative to the notes folder ("attachments/<name>.pdf")
+    attachments: list[str] = field(default_factory=list)  # attached files, relative to the notes folder
     created: int = 0
     updated: int = 0
     has_id: bool = True
@@ -77,6 +78,26 @@ def slug(title: str) -> str:
 
 def file_name_for(title: str, note_id: str) -> str:
     return f"{slug(title)}-{note_id}.md"
+
+
+def attachment_name(path: str) -> str:
+    """attachments/facture-edf-k3f9a2.pdf -> facture-edf.pdf"""
+    name = path.rsplit("/", 1)[-1]
+    stem, dot, ext = name.rpartition(".")
+    if not dot or not stem:
+        stem, ext = name, ""
+    stem = re.sub(r"-[a-z0-9]{6}$", "", stem)
+    return f"{stem}.{ext}" if ext else stem
+
+
+def attachment_path(original: str) -> str:
+    """Where a file attached under this name is stored: attachments/<slug>-<id6>.<ext> (random, the caller checks it is free)."""
+    name = original.replace("\\", "/").rsplit("/", 1)[-1]
+    stem, dot, ext = name.rpartition(".")
+    if not dot or not stem:
+        stem, ext = name, ""
+    ext = "".join(c for c in ext.lower() if c.isascii() and c.isalnum())[:10]
+    return f"attachments/{slug(stem)}-{generate_id()}" + (f".{ext}" if ext else "")
 
 
 # ---- YAML scalars ----
@@ -211,6 +232,7 @@ def parse(path: str, raw_text: str, last_modified: int) -> Note:
         labels=parse_list(values["labels"]) if "labels" in values else [],
         reminder=parse_time(values["reminder"]) if "reminder" in values else None,
         pdf=unquote(values["pdf"]) or None if "pdf" in values else None,
+        attachments=parse_list(values["attachments"]) if "attachments" in values else [],
         created=(parse_time(values["created"]) if "created" in values else None) or last_modified,
         updated=(parse_time(values["updated"]) if "updated" in values else None) or last_modified,
         body=body,
@@ -231,6 +253,8 @@ def serialize(note: Note) -> str:
         out.append(f"reminder: {format_time(note.reminder)}")
     if note.pdf:
         out.append(f"pdf: {yaml_quote(note.pdf)}")
+    if note.attachments:
+        out.append("attachments: [" + ", ".join(yaml_quote(x, flow=True) for x in note.attachments) + "]")
     out.append(f"created: {format_time(note.created)}")
     out.append(f"updated: {format_time(note.updated)}")
     out.extend(note.extra)

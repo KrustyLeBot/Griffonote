@@ -102,4 +102,23 @@ class NoteFormatTest {
         assertEquals(listOf(false, true, false), parts.items.map { it.checked })
         assertEquals("Texte", parts.after)
     }
+
+    @Test
+    fun attachmentsRoundTrip() {
+        val base = NoteFormat.parse("a.md", sample, 0L)
+        assertTrue(base.attachments.isEmpty())
+        val n = base.copy(attachments = listOf("attachments/photo-abc123.jpg", "attachments/facture, edf-k3f9a2.pdf"))
+        val text = NoteFormat.serialize(n)
+        assertTrue(text.contains("attachments: [attachments/photo-abc123.jpg, \"attachments/facture, edf-k3f9a2.pdf\"]\n"))
+        assertEquals(n.attachments, NoteFormat.parse("a.md", text, 0L).attachments)
+        val block = text.replace(Regex("attachments: \\[.*]"), "attachments:\n  - attachments/x-aaaaaa.png")
+        assertEquals(listOf("attachments/x-aaaaaa.png"), NoteFormat.parse("a.md", block, 0L).attachments)
+    }
+
+    @Test
+    fun attachmentPathKeepsAReadableNameAndExtension() {
+        assertTrue(Regex("""attachments/facture-edf-[a-z0-9]{6}\.pdf""").matches(NoteFormat.attachmentPath("Facture EDF.PDF")))
+        assertTrue(Regex("""attachments/img-2026-[a-z0-9]{6}\.jpg""").matches(NoteFormat.attachmentPath("/storage/IMG_2026.jpg")))
+        assertTrue(Regex("""attachments/note-[a-z0-9]{6}""").matches(NoteFormat.attachmentPath("")))
+    }
 }

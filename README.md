@@ -9,13 +9,17 @@ folder (`Documents/Griffonote/` by default), so notes can be read and edited on 
 ```
 Griffonote/
 ├── courses-k3f9a2.md      # one file per note: YAML frontmatter + Markdown body
-├── attachments/           # scanned documents (scan-...-k3f9a2.pdf), referenced by `pdf:` in a note
+├── attachments/           # scanned PDFs (`pdf:`) and attached files (`attachments:`) of the notes
 └── drawings/
 ```
 
 - A scan is a normal note whose frontmatter has `pdf: attachments/<name>.pdf`; the Android app creates it
   with Google's document scanner (automatic page corners, several pages) and fits each page on A4 or
   US Letter (guessed from the page shape, or fixed in the settings), compressed for a fast sync.
+- Files attached to a note (photos, videos, any document) are copied to `attachments/<name>-<id6>.<ext>` and
+  listed in its frontmatter: `attachments: [attachments/facture-edf-k3f9a2.pdf, ...]`. On Android they come from
+  the gallery or the file manager (paperclip button of the editor), on Windows from a file dialog; 50 MB at most
+  each. Deleting the note or removing an attachment deletes its file.
 - The file name is fixed at creation (`<slug>-<id6>.md`) and never renamed.
 - Unknown frontmatter fields are preserved verbatim.
 - Writes are atomic: `.<name>.synctmp-<uuid>` in the same folder, flushed to disk, then renamed over the file (Synchrotron never syncs that pattern).

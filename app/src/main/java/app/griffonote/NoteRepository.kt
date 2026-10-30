@@ -105,6 +105,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
     fun delete(note: Note) {
         fs.delete(note.path)
         note.pdf?.let { fs.delete(it) }
+        note.attachments.forEach { fs.delete(it) }
         parsed.remove(note.path)
         _notes.value = _notes.value.filter { it.path != note.path }
     }

@@ -11,6 +11,10 @@ from . import note as fmt
 from .note import Note
 
 
+# Above this, a file is refused: it is synced to every device (same limit as the Android app).
+MAX_ATTACHMENT = 50_000_000
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -92,8 +96,22 @@ class Store:
         """Absolute path of the note's scanned PDF, if it has one."""
         return self.root / note.pdf if note.pdf else None
 
+    def file_path(self, relative: str) -> Path:
+        return self.root / relative
+
+    def add_attachment(self, source: Path) -> str:
+        """Copies the file into attachments/ and returns its path relative to the notes folder."""
+        size = source.stat().st_size
+        if size > MAX_ATTACHMENT:
+            raise OSError(f"{source.name} dépasse {MAX_ATTACHMENT // 1_000_000} Mo")
+        relative = fmt.attachment_path(source.name)
+        while self.file_path(relative).exists():
+            relative = fmt.attachment_path(source.name)
+        atomic.write_bytes(self.file_path(relative), source.read_bytes())
+        return relative
+
     def delete(self, note: Note) -> None:
-        for path in (self.root / note.path, self.pdf_path(note)):
+        for path in (self.root / note.path, self.pdf_path(note), *(self.file_path(a) for a in note.attachments)):
             try:
                 if path is not None:
                     path.unlink()

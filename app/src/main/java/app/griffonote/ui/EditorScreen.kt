@@ -1,6 +1,17 @@
 package app.griffonote.ui
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -112,6 +123,16 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
     var showColors by remember { mutableStateOf(false) }
     var showLabels by remember { mutableStateOf(false) }
     var textFocused by remember { mutableStateOf(false) }
+    var showAttach by remember { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(vm.snack) {
+        val s = vm.snack ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(s.text, actionLabel = if (s.undo != null) "Annuler" else null)
+        if (result == SnackbarResult.ActionPerformed) s.undo?.invoke()
+        vm.snack = null
+    }
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { vm.addAttachments(it) }
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { vm.addAttachments(it) }
 
     LaunchedEffect(ed) {
         androidx.compose.runtime.snapshotFlow { ed.snapshot() }
@@ -167,6 +188,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
     Scaffold(
         containerColor = bg,
         contentColor = fg,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = bg, titleContentColor = fg),
@@ -202,6 +224,24 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                         ToolButton(Icons.Default.CheckBox, "Liste à cocher") { vm.convertToChecklist() }
                         ToolButton(Icons.Default.Palette, "Couleur") { showColors = true }
                         ToolButton(Icons.Default.Label, "Libellés") { showLabels = true }
+                        Box {
+                            ToolButton(Icons.Default.AttachFile, "Joindre un fichier") { showAttach = true }
+                            DropdownMenu(expanded = showAttach, onDismissRequest = { showAttach = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Photo ou vidéo") },
+                                    leadingIcon = { Icon(Icons.Default.PhotoLibrary, null) },
+                                    onClick = {
+                                        showAttach = false
+                                        pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Fichier") },
+                                    leadingIcon = { Icon(Icons.Default.Folder, null) },
+                                    onClick = { showAttach = false; pickFiles.launch(arrayOf("*/*")) },
+                                )
+                            }
+                        }
                         ToolButton(Icons.Default.Share, "Partager") {
                             val text = Note(
                                 path = "", id = "", title = ed.title,
@@ -227,6 +267,9 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                 Banner("Document scanné") {
                     TextButton(onClick = { vm.showPdf(pdf) }) { Text("Voir le PDF") }
                 }
+            }
+            if (ed.attachments.isNotEmpty() || vm.attaching) {
+                Attachments(vm, ed.attachments, vm.attaching, fg)
             }
             if (ed.conflict) {
                 Banner("Copie de conflit créée par la synchronisation") {

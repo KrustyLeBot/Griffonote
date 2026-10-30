@@ -1,3 +1,5 @@
+import re
+
 from griffonote_win.core import note as fmt
 
 SAMPLE = """---
@@ -79,3 +81,21 @@ def test_scanned_pdf_survives_a_round_trip():
     assert note.extra == []
     assert "pdf: attachments/scan-k3f9a2.pdf" in fmt.serialize(note)
     assert fmt.parse("plain.md", "---\nid: abc123\ntitle: x\n---\n", 0).pdf is None
+
+
+def test_attachments_survive_a_round_trip():
+    note = fmt.parse("a-abc123.md", "---\nid: abc123\ntitle: x\nattachments:\n  - attachments/photo-aaaaaa.jpg\n"
+                     "  - \"attachments/facture, edf-bbbbbb.pdf\"\n---\n", 0)
+    assert note.attachments == ["attachments/photo-aaaaaa.jpg", "attachments/facture, edf-bbbbbb.pdf"]
+    text = fmt.serialize(note)
+    assert 'attachments: [attachments/photo-aaaaaa.jpg, "attachments/facture, edf-bbbbbb.pdf"]' in text
+    assert fmt.parse("a-abc123.md", text, 0).attachments == note.attachments
+    assert fmt.parse("plain.md", "---\nid: abc123\ntitle: x\n---\n", 0).attachments == []
+
+
+def test_attachment_names():
+    assert re.fullmatch(r"attachments/facture-edf-[a-z0-9]{6}\.pdf", fmt.attachment_path(r"C:\Users\me\Facture EDF.PDF"))
+    assert re.fullmatch(r"attachments/img-2026-[a-z0-9]{6}\.jpg", fmt.attachment_path("IMG_2026.jpg"))
+    assert re.fullmatch(r"attachments/note-[a-z0-9]{6}", fmt.attachment_path(""))
+    assert fmt.attachment_name("attachments/facture-edf-k3f9a2.pdf") == "facture-edf.pdf"
+    assert fmt.attachment_name("attachments/readme-k3f9a2") == "readme"

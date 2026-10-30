@@ -50,12 +50,14 @@ class NoteCard(QFrame):
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(6)
 
-        if note.pdf:
-            pdf = QLabel("PDF")
-            pdf.setObjectName("chip")
-            pdf.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        chips = (["PDF"] if note.pdf else []) + ([f"📎 {len(note.attachments)}"] if note.attachments else [])
+        if chips:
             row = QHBoxLayout()
-            row.addWidget(pdf)
+            for text in chips:
+                chip = QLabel(text)
+                chip.setObjectName("chip")
+                chip.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                row.addWidget(chip)
             row.addStretch()
             layout.addLayout(row)
         if note.conflict:

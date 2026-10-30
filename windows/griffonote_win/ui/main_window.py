@@ -75,6 +75,8 @@ class MainWindow(QMainWindow):
         self.editor.back_requested.connect(self.close_editor)
         self.editor.delete_requested.connect(self.delete_note)
         self.editor.open_pdf.connect(self.open_pdf)
+        self.editor.open_file.connect(self.open_attachment)
+        self.editor.reveal_file.connect(self.reveal_attachment)
         self.list_screen.open_pdf.connect(self.open_pdf)
         self.list_screen.reveal.connect(self.reveal_note)
         self.editor.message.connect(self.show_snack)
@@ -213,6 +215,14 @@ class MainWindow(QMainWindow):
         if path is None or not files.open_file(path):
             self.show_snack("PDF introuvable (pas encore synchronisé ?)")
 
+    def open_attachment(self, path: str) -> None:
+        if not files.open_file(self.store.file_path(path)):
+            self.show_snack("Fichier introuvable (pas encore synchronisé ?)")
+
+    def reveal_attachment(self, path: str) -> None:
+        if not files.reveal(self.store.file_path(path)):
+            self.show_snack("Fichier introuvable")
+
     def reveal_note(self, note: Note) -> None:
         path = self.store.pdf_path(note) or self.store.root / note.path
         if not files.reveal(path):
@@ -221,13 +231,14 @@ class MainWindow(QMainWindow):
     def delete_note(self, note: Note) -> None:
         """Deletes for good; the snackbar offers a short-lived undo (like on the phone)."""
         if note.path:
-            pdf = self.store.pdf_path(note)
-            pdf_bytes = pdf.read_bytes() if pdf is not None and pdf.exists() else None
+            kept = [p for p in [self.store.pdf_path(note), *(self.store.file_path(a) for a in note.attachments)]
+                    if p is not None and p.exists()]
+            contents = [(p, p.read_bytes()) for p in kept]
             self.store.delete(note)
 
             def undo() -> None:
-                if pdf is not None and pdf_bytes is not None:
-                    atomic.write_bytes(pdf, pdf_bytes)
+                for p, data in contents:
+                    atomic.write_bytes(p, data)
                 self.store.save(note)
                 self.refresh()
 

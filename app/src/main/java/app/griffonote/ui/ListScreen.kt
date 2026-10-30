@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
@@ -238,10 +239,16 @@ private fun NoteCard(note: Note, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {
-            if (note.pdf != null) {
+            if (note.pdf != null || note.attachments.isNotEmpty()) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
-                    Icon(Icons.Default.PictureAsPdf, null, Modifier.size(18.dp))
-                    Text(" PDF", style = MaterialTheme.typography.labelMedium)
+                    if (note.pdf != null) {
+                        Icon(Icons.Default.PictureAsPdf, null, Modifier.size(18.dp))
+                        Text(" PDF  ", style = MaterialTheme.typography.labelMedium)
+                    }
+                    if (note.attachments.isNotEmpty()) {
+                        Icon(Icons.Default.AttachFile, null, Modifier.size(18.dp))
+                        Text(" ${note.attachments.size}", style = MaterialTheme.typography.labelMedium)
+                    }
                 }
             }
             if (note.conflict) {

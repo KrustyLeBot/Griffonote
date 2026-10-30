@@ -79,3 +79,17 @@ def test_atomic_write_leaves_no_temporary(tmp_path):
     assert [p.name for p in target.parent.iterdir()] == ["a.md"]
     assert atomic.is_temp(atomic.temp_name("a.md"))
     assert atomic.temp_name("a.md").startswith(".a.md.synctmp-")
+
+
+def test_attachments_are_copied_in_and_deleted_with_the_note(tmp_path):
+    store = Store(tmp_path / "notes")
+    source = tmp_path / "Photo vacances.JPG"
+    source.write_bytes(b"\xff\xd8 image")
+    rel = store.add_attachment(source)
+    assert rel.startswith("attachments/photo-vacances-") and rel.endswith(".jpg")
+    assert store.file_path(rel).read_bytes() == b"\xff\xd8 image"
+    note = store.save(fmt.Note(path="", id="abc123", title="Vacances", created=now_ms(), updated=now_ms(), attachments=[rel]))
+    assert store.scan()[0].attachments == [rel]
+    store.delete(note)
+    assert not store.file_path(rel).exists()
+    assert source.exists()

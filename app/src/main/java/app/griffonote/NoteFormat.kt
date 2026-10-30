@@ -11,7 +11,7 @@ import kotlin.random.Random
 
 /** Markdown + YAML frontmatter reader/writer. Pure Kotlin so it can be unit-tested on the JVM. */
 object NoteFormat {
-    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "pdf", "created", "updated")
+    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "pdf", "attachments", "created", "updated")
     private val KEY_REGEX = Regex("""^([A-Za-z_][\w-]*):[ \t]*(.*)$""")
     private const val ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -76,6 +76,7 @@ object NoteFormat {
             labels = values["labels"]?.let { parseList(it) }.orEmpty(),
             reminder = values["reminder"]?.let { parseTime(it) },
             pdf = values["pdf"]?.let { unquote(it) }?.ifEmpty { null },
+            attachments = values["attachments"]?.let { parseList(it) }.orEmpty(),
             created = values["created"]?.let { parseTime(it) } ?: lastModified,
             updated = values["updated"]?.let { parseTime(it) } ?: lastModified,
             body = body,
@@ -95,6 +96,9 @@ object NoteFormat {
         }
         note.reminder?.let { sb.append("reminder: ").append(formatTime(it)).append('\n') }
         note.pdf?.let { sb.append("pdf: ").append(yamlQuote(it)).append('\n') }
+        if (note.attachments.isNotEmpty()) {
+            sb.append("attachments: [").append(note.attachments.joinToString(", ") { yamlQuote(it, flow = true) }).append("]\n")
+        }
         sb.append("created: ").append(formatTime(note.created)).append('\n')
         sb.append("updated: ").append(formatTime(note.updated)).append('\n')
         note.extra.forEach { sb.append(it).append('\n') }
@@ -114,6 +118,15 @@ object NoteFormat {
     }
 
     fun fileNameFor(title: String, id: String): String = "${slug(title)}-$id.md"
+
+    /** Where a file attached under [original] name is stored: `attachments/<slug>-<id6>.<ext>` (random, the caller checks it is free). */
+    fun attachmentPath(original: String): String {
+        val name = original.substringAfterLast('/').substringAfterLast('\\')
+        val dot = name.lastIndexOf('.')
+        val ext = if (dot > 0) name.substring(dot + 1).lowercase().filter { it in 'a'..'z' || it in '0'..'9' }.take(10) else ""
+        val stem = slug(if (dot > 0) name.substring(0, dot) else name)
+        return "attachments/$stem-${generateId()}" + if (ext.isNotEmpty()) ".$ext" else ""
+    }
 
     // ---- YAML scalars ----
 

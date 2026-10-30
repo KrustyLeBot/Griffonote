@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication, QKeyEvent, QTextBlockFormat, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
+from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSizePolicy, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 from ..core import note as fmt
 from ..core.note import BodyParts, CheckItem, Note
 from ..core.store import Store, now_ms
 from . import icons, richtext, theme
+from .attachments import AttachmentStrip
 from .checklist import ChecklistWidget
 from .dialogs import ColorDialog, LabelDialog
 
@@ -161,6 +164,8 @@ class EditorScreen(QWidget):
     back_requested = Signal()
     delete_requested = Signal(object)  # Note
     open_pdf = Signal(object)  # Note
+    open_file = Signal(str)  # path relative to the notes folder
+    reveal_file = Signal(str)
     message = Signal(str)
     saved = Signal(str)
 
@@ -241,6 +246,13 @@ class EditorScreen(QWidget):
         self.pdf_banner.hide()
         self.column.addWidget(self.pdf_banner)
 
+        self.attachments = AttachmentStrip()
+        self.attachments.open_requested.connect(self.open_file)
+        self.attachments.reveal_requested.connect(self.reveal_file)
+        self.attachments.remove_requested.connect(self.remove_attachment)
+        self.attachments.hide()
+        self.column.addWidget(self.attachments)
+
         self.title = QLineEdit()
         self.title.setPlaceholderText("Titre")
         self.title.setFrame(False)
@@ -289,6 +301,7 @@ class EditorScreen(QWidget):
         tools.addWidget(self._tool("checkbox", "Liste à cocher", self.convert_to_checklist, self.tool_buttons))
         tools.addWidget(self._tool("palette", "Couleur", self.pick_color, self.tool_buttons))
         tools.addWidget(self._tool("label", "Libellés", self.pick_labels, self.tool_buttons))
+        tools.addWidget(self._tool("attach", "Joindre des fichiers", self.add_attachments, self.tool_buttons))
         tools.addWidget(self._tool("share", "Copier la note", self.copy_note, self.tool_buttons))
         tools.addStretch()
         self.delete_button = self._tool("delete", "Supprimer la note", self._request_delete, None)
@@ -338,6 +351,7 @@ class EditorScreen(QWidget):
         self.delete_button.setIcon(icons.icon("delete", s.error, 24))
         self.checklist.fg = fg
         self.chips._urls = []  # force a restyle
+        self._show_attachments()
 
     # ---- load / save ----
 
@@ -371,6 +385,7 @@ class EditorScreen(QWidget):
         self.after.setPlainText(parts.after)
         self.banner.setVisible(note.conflict)
         self.pdf_banner.setVisible(bool(note.pdf))
+        self._show_attachments()
         self._refresh_visibility()
         self.dirty = False
         self._loading = False
@@ -401,7 +416,7 @@ class EditorScreen(QWidget):
 
     @staticmethod
     def _is_blank(note: Note) -> bool:
-        return not note.title and note.body.strip() in ("", "- [ ]")
+        return not note.title and note.body.strip() in ("", "- [ ]") and not note.attachments
 
     def save(self) -> None:
         self.save_timer.stop()
@@ -464,6 +479,41 @@ class EditorScreen(QWidget):
             self.current = self.current.copy(labels=dialog.selected())
             self._all_labels = sorted(set(self._all_labels) | set(self.current.labels), key=fmt.fold)
             self._edited()
+
+    def _show_attachments(self) -> None:
+        if self.current is not None and self.store is not None:
+            self.attachments.set_files(self.store.root, self.current.attachments, self._fg)
+
+    def add_attachments(self) -> None:
+        if self.current is None or self.store is None:
+            return
+        chosen, _ = QFileDialog.getOpenFileNames(self, "Joindre des fichiers")
+        added: list[str] = []
+        for name in chosen:
+            try:
+                added.append(self.store.add_attachment(Path(name)))
+            except OSError as exc:
+                self.message.emit(f"Pièce jointe impossible : {exc}")
+        if added:
+            self.current = self.current.copy(attachments=self.current.attachments + added)
+            self._show_attachments()
+            self._edited()
+
+    def remove_attachment(self, path: str) -> None:
+        if self.current is None or self.store is None:
+            return
+        answer = QMessageBox.question(self, "Retirer la pièce jointe",
+                                      f"Retirer « {fmt.attachment_name(path)} » de la note ? Le fichier sera supprimé.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.current = self.current.copy(attachments=[a for a in self.current.attachments if a != path])
+        self._show_attachments()
+        self.dirty = True
+        self.save()
+        try:
+            self.store.file_path(path).unlink()
+        except FileNotFoundError:
+            pass
 
     def copy_note(self) -> None:
         if self.current is None:

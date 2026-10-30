@@ -47,6 +47,7 @@ data class EditorSnapshot(
     val color: String,
     val pinned: Boolean,
     val labels: List<String>,
+    val attachments: List<String>,
 )
 
 class EditorState(note: Note?, val isNew: Boolean) {
@@ -60,6 +61,7 @@ class EditorState(note: Note?, val isNew: Boolean) {
     var color by mutableStateOf(note?.color ?: DEFAULT_COLOR)
     var pinned by mutableStateOf(note?.pinned ?: false)
     var labels by mutableStateOf(note?.labels.orEmpty())
+    val attachments = mutableStateListOf<String>().apply { addAll(note?.attachments.orEmpty()) }
     var checkedExpanded by mutableStateOf(false)
     var pendingFocusId by mutableStateOf<Long?>(null)
     var focusTitle by mutableStateOf(false)
@@ -85,7 +87,7 @@ class EditorState(note: Note?, val isNew: Boolean) {
 
     fun body(): String = BodyFormat.build(BodyParts(text.text, items.toList(), after))
 
-    fun snapshot() = EditorSnapshot(title, text.text, items.toList(), after, color, pinned, labels)
+    fun snapshot() = EditorSnapshot(title, text.text, items.toList(), after, color, pinned, labels, attachments.toList())
 
     fun reloadFrom(note: Note) {
         base = note
@@ -93,11 +95,13 @@ class EditorState(note: Note?, val isNew: Boolean) {
         color = note.color
         pinned = note.pinned
         labels = note.labels
+        attachments.clear()
+        attachments.addAll(note.attachments)
         applyBody(note.body)
         lastSnapshot = snapshot()
     }
 
-    val isEmpty: Boolean get() = title.isBlank() && body().isBlank()
+    val isEmpty: Boolean get() = title.isBlank() && body().isBlank() && attachments.isEmpty()
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -304,22 +308,110 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Opens the note's PDF in another app (the phone's PDF viewer). */
-    fun openPdf(path: String) {
+    fun openPdf(path: String) = openFile(path)
+
+    /** Opens a file of the notes folder in the app that handles its type. */
+    fun openFile(path: String) {
         val app = getApplication<Application>()
         val uri = when (val fs = repo.fs) {
-            is FileFs -> androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", java.io.File(fs.root, path))
+            is FileFs -> java.io.File(fs.root, path).takeIf { it.isFile }?.let {
+                androidx.core.content.FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", it)
+            }
             is SafFs -> fs.uriOf(path)
             else -> null
         }
-        if (uri == null) { snack = Snack("PDF introuvable"); return }
+        if (uri == null) { snack = Snack("Fichier introuvable (pas encore synchronisé ?)"); return }
         try {
             app.startActivity(
-                android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, "application/pdf")
+                android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, mimeOf(path))
                     .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (e: android.content.ActivityNotFoundException) {
-            snack = Snack("Aucune application pour lire les PDF")
+            snack = Snack("Aucune application pour ouvrir ce fichier")
         }
+    }
+
+    // ---- attachments ----
+
+    /** Files are being copied into the note. */
+    var attaching by mutableStateOf(false)
+        private set
+
+    /**
+     * Copies the files picked in the gallery or the file manager into `attachments/` and adds them
+     * to the open note (saved with it by the autosave).
+     */
+    fun addAttachments(uris: List<Uri>) {
+        val ed = editor ?: return
+        if (uris.isEmpty() || attaching) return
+        attaching = true
+        viewModelScope.launch {
+            val failed = ArrayList<String>()
+            for (uri in uris) {
+                try {
+                    val path = withContext(io) { copyIn(uri) }
+                    ed.attachments.add(path)
+                } catch (e: Exception) {
+                    failed.add(e.message ?: "erreur")
+                }
+            }
+            attaching = false
+            if (failed.isNotEmpty()) snack = Snack("Pièce jointe impossible : ${failed.first()}")
+        }
+    }
+
+    private fun copyIn(uri: Uri): String {
+        val resolver = getApplication<Application>().contentResolver
+        var name = "fichier"
+        var size = -1L
+        resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getString(0)?.let { name = it }
+                if (!c.isNull(1)) size = c.getLong(1)
+            }
+        }
+        if (!name.contains('.')) {
+            android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(resolver.getType(uri))?.let { name += ".$it" }
+        }
+        if (size > MAX_ATTACHMENT) throw java.io.IOException("$name dépasse ${MAX_ATTACHMENT / 1_000_000} Mo")
+        val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw java.io.IOException("$name illisible")
+        if (bytes.size > MAX_ATTACHMENT) throw java.io.IOException("$name dépasse ${MAX_ATTACHMENT / 1_000_000} Mo")
+        var path = NoteFormat.attachmentPath(name)
+        while (repo.fs.exists(path)) path = NoteFormat.attachmentPath(name)
+        repo.fs.writeBytes(path, bytes)
+        return path
+    }
+
+    /** Takes the file out of the note and deletes it; the snackbar offers to put it back. */
+    fun removeAttachment(path: String) {
+        val ed = editor ?: return
+        viewModelScope.launch {
+            ed.attachments.remove(path)
+            persist(ed)
+            val bytes = withContext(io) { repo.fs.readBytes(path).also { repo.fs.delete(path) } }
+            snack = Snack("Pièce jointe supprimée") {
+                if (bytes != null) viewModelScope.launch {
+                    withContext(io) { repo.fs.writeBytes(path, bytes) }
+                    if (editor === ed) {
+                        if (path !in ed.attachments) ed.attachments.add(path)
+                    } else {
+                        val note = notes.value.firstOrNull { it.id == ed.base?.id } ?: return@launch
+                        withContext(io) { repo.save(note.copy(attachments = note.attachments + path)) }
+                    }
+                }
+            }
+        }
+    }
+
+    /** A small version of an attached image, or null when it is not an image (or not there yet). */
+    suspend fun thumbnail(path: String, maxPx: Int): android.graphics.Bitmap? = withContext(io) {
+        if (!isImage(path)) return@withContext null
+        val bytes = repo.fs.readBytes(path) ?: return@withContext null
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= maxPx && bounds.outHeight / (sample * 2) >= maxPx) sample *= 2
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
     }
 
     // ---- navigation ----
@@ -388,12 +480,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Note(
                 path = "", id = NoteFormat.generateId(), title = snap.title,
                 color = snap.color, pinned = snap.pinned, labels = snap.labels,
-                created = now, updated = now, body = body,
+                created = now, updated = now, body = body, attachments = snap.attachments,
             )
         } else {
             b.copy(
                 title = snap.title, color = snap.color, pinned = snap.pinned,
-                labels = snap.labels, body = body, updated = now,
+                labels = snap.labels, body = body, updated = now, attachments = snap.attachments,
             )
         }
     }
@@ -403,7 +495,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val snap = ed.snapshot()
         val body = ed.body()
         if (snap == ed.lastSnapshot) return
-        if (ed.base == null && snap.title.isBlank() && body.isBlank()) return
+        if (ed.base == null && snap.title.isBlank() && body.isBlank() && snap.attachments.isEmpty()) return
         persistLock.withLock {
             val note = buildNote(ed, snap, body)
             try {
@@ -478,13 +570,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         editor = null
         viewModelScope.launch {
             persistLock.withLock { }
+            // Attached since the last save: no note refers to them.
+            val unsaved = ed.attachments.filter { it !in ed.base?.attachments.orEmpty() }
+            if (unsaved.isNotEmpty()) withContext(io) { unsaved.forEach { repo.fs.delete(it) } }
             val note = ed.base ?: return@launch
-            val pdfBytes = withContext(io) { note.pdf?.let { repo.fs.readBytes(it) } }
+            val files = withContext(io) {
+                (listOfNotNull(note.pdf) + note.attachments).mapNotNull { p -> repo.fs.readBytes(p)?.let { p to it } }
+            }
             withContext(io) { repo.delete(note) }
             snack = Snack("Note supprimée") {
                 viewModelScope.launch {
                     withContext(io) {
-                        if (note.pdf != null && pdfBytes != null) repo.fs.writeBytes(note.pdf, pdfBytes)
+                        files.forEach { (p, bytes) -> repo.fs.writeBytes(p, bytes) }
                         repo.save(note)
                     }
                 }
@@ -528,3 +625,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         requestStorageChange(StorageConfig.Tree(uri))
     }
 }
+
+/** Above this, a file is refused: it is copied in memory, then synced to every device. */
+const val MAX_ATTACHMENT = 50_000_000L
+
+fun isImage(path: String) = path.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp")
+
+fun mimeOf(path: String): String =
+    android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(path.substringAfterLast('.', "").lowercase()) ?: "*/*"
