@@ -85,11 +85,11 @@ def test_scanned_pdf_survives_a_round_trip():
 
 def test_attachments_survive_a_round_trip():
     note = fmt.parse("a-abc123.md", "---\nid: abc123\ntitle: x\nattachments:\n  - attachments/photo-aaaaaa.jpg\n"
-                     "  - \"attachments/facture, edf-bbbbbb.pdf\"\n---\n", 0)
+                     "  - \"attachments/facture, edf-bbbbbb.pdf\"\n---\n",1_700_000_000_000)
     assert note.attachments == ["attachments/photo-aaaaaa.jpg", "attachments/facture, edf-bbbbbb.pdf"]
     text = fmt.serialize(note)
     assert 'attachments: [attachments/photo-aaaaaa.jpg, "attachments/facture, edf-bbbbbb.pdf"]' in text
-    assert fmt.parse("a-abc123.md", text, 0).attachments == note.attachments
+    assert fmt.parse("a-abc123.md", text, 1_700_000_000_000).attachments == note.attachments
     assert fmt.parse("plain.md", "---\nid: abc123\ntitle: x\n---\n", 0).attachments == []
 
 
