@@ -23,6 +23,8 @@ class ActivityInfo:
     runs: int = 0
     file: str | None = None     # track file, relative to the notes folder
     alt: str | None = None      # altitude looked up from the terrain model (attachments/….alt)
+    climbs: int = 0             # skiing: climbs (lifts, uphill) ...
+    drop: int = 0               # ... and metres skied down
 
     def to_json(self) -> str:
         d: dict = {"sport": self.sport.key, "start": self.start, "elapsed": self.elapsed, "moving": self.moving,
@@ -37,6 +39,10 @@ class ActivityInfo:
             d["file"] = self.file
         if self.alt:
             d["alt"] = self.alt
+        if self.climbs > 0:
+            d["climbs"] = self.climbs
+        if self.drop > 0:
+            d["drop"] = self.drop
         return json.dumps(d, ensure_ascii=False)
 
     @staticmethod
@@ -60,6 +66,7 @@ class ActivityInfo:
             distance=num("distance"), ascent=int(num("ascent")), descent=int(num("descent")),
             hr=int(num("hr")) if "hr" in d else None, vmax=num("vmax") if "vmax" in d else None,
             runs=int(num("runs")), file=d.get("file") or None, alt=d.get("alt") or None,
+            climbs=int(num("climbs")), drop=int(num("drop")),
         )
 
     @staticmethod
@@ -70,7 +77,7 @@ class ActivityInfo:
             sport=sport, start=track.start_time or first, elapsed=s.elapsed_ms // 1000, moving=s.moving_ms // 1000,
             distance=s.distance, ascent=round(s.ascent), descent=round(s.descent), hr=s.hr_avg,
             vmax=(s.run_max_speed if sport == Sport.SKI and s.runs > 0 else (s.max_speed or None)),
-            runs=s.runs, file=file, alt=alt,
+            runs=s.runs, file=file, alt=alt, climbs=s.climbs, drop=round(s.run_drop),
         )
 
 

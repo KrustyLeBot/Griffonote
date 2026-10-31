@@ -134,33 +134,45 @@ private val Fast = Color(0xFFFF3D00)
 
 private fun speedColor(f: Float): Color = if (f < 0.5f) lerp(Slow, Mid, f * 2) else lerp(Mid, Fast, (f - 0.5f) * 2)
 
+enum class SkiMap { BOTH, DOWN, ALL }
+
+private val Climb = Color(0xFF00B0FF)
+
 /**
- * The analysis as map lines: chunks coloured from blue (slow) to red (fast). For skiing only the
- * descents are drawn unless [showAll]; gaps (pauses, lost signal) cut the line.
+ * The analysis as map lines: chunks coloured from violet (slow) to red (fast). Skiing: descents in that
+ * gradient and climbs in blue, or descents only, or everything (the rest in grey). Gaps (pauses, lost
+ * signal) cut the line.
  */
-fun mapLines(a: Analysis, ski: Boolean, showAll: Boolean): List<MapLine> {
+fun mapLines(a: Analysis, ski: Boolean, mode: SkiMap = SkiMap.BOTH): List<MapLine> {
     val s = a.samples
     if (s.size < 2) return emptyList()
     val sorted = s.map { it.speed }.sorted()
     val top = sorted[(sorted.size * 0.9).toInt().coerceAtMost(sorted.size - 1)].coerceAtLeast(0.5)
     val maxGap = (a.quality.medianIntervalSec * 6).coerceAtLeast(30.0) * 1000
+    // 0 = descent (or any point of a non-ski activity), 1 = climb, 2 = the rest of a ski day
+    fun kind(i: Int): Int = if (!ski || s[i].down) 0 else if (s[i].up) 1 else 2
+    fun shown(i: Int): Boolean = !ski || when (mode) {
+        SkiMap.ALL -> true
+        SkiMap.DOWN -> s[i].down
+        SkiMap.BOTH -> s[i].down || s[i].up
+    }
     val out = ArrayList<MapLine>()
     var i = 0
     while (i < s.size - 1) {
-        val keep = !ski || showAll || s[i].down
-        if (!keep) { i++; continue }
+        if (!shown(i)) { i++; continue }
         val from = i
+        val k = kind(i)
         var j = i
         var speedSum = 0.0
-        while (j + 1 < s.size && j - from < 8 && s[j + 1].time - s[j].time <= maxGap && (!ski || showAll || s[j + 1].down)) {
+        while (j + 1 < s.size && j - from < 8 && s[j + 1].time - s[j].time <= maxGap && shown(j + 1) && kind(j + 1) == k) {
             j++
             speedSum += s[j].speed
         }
         if (j == from) { i++; continue }
-        val avg = speedSum / (j - from)
-        val color = when {
-            ski && showAll && !s[from].down -> Color(0xFF9AA0A6)
-            else -> speedColor((avg / top).toFloat().coerceIn(0f, 1f))
+        val color = when (k) {
+            1 -> Climb
+            2 -> Color(0xFF9AA0A6)
+            else -> speedColor((speedSum / (j - from) / top).toFloat().coerceIn(0f, 1f))
         }
         out.add(MapLine(DoubleArray(j - from + 1) { s[from + it].lat }, DoubleArray(j - from + 1) { s[from + it].lon }, color))
         i = j

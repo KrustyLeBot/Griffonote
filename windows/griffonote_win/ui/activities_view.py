@@ -50,6 +50,14 @@ def fmt_hour(ms: int) -> str:
 
 def summary_line(i: act.ActivityInfo) -> str:
     parts = []
+    if i.sport == Sport.SKI:
+        # the whole track includes the lifts: what counts for skiing is the descents
+        parts.append(act.fmt_duration(i.moving if i.moving > 0 else i.elapsed))
+        if i.runs > 0:
+            parts.append(f"{i.runs} descentes" + (f" · {i.drop} m" if i.drop > 0 else ""))
+        if i.climbs > 0:
+            parts.append(f"{i.climbs} montées")
+        return " · ".join(parts)
     if i.distance > 0:
         parts.append(act.fmt_distance(i.distance))
     parts.append(act.fmt_duration(i.moving if i.moving > 0 else i.elapsed))
@@ -57,36 +65,41 @@ def summary_line(i: act.ActivityInfo) -> str:
         parts.append(act.fmt_speed_for(i.sport, i.distance / i.moving))
     if i.ascent > 0:
         parts.append(f"↑ {i.ascent} m")
-    if i.sport == Sport.SKI and i.runs > 0:
-        parts.append(f"{i.runs} descentes")
     return " · ".join(parts)
 
 
-def map_lines(a: Analysis, ski: bool, show_all: bool):
-    """Chunks of the track coloured from blue (slow) to red (fast); skiing: descents only unless show_all."""
+CLIMB = QColor("#00B0FF")
+
+
+def map_lines(a: Analysis, ski: bool, mode: str = "both"):
+    """Chunks of the track coloured from violet (slow) to red (fast). Skiing: descents in that gradient and climbs
+    in blue ("both"), descents only ("down"), or everything with the rest in grey ("all")."""
     s = a.samples
     if len(s) < 2:
         return []
     speeds = sorted(x.speed for x in s)
     top = max(speeds[min(int(len(speeds) * 0.9), len(speeds) - 1)], 0.5)
     max_gap = max(a.quality.median_interval_sec * 6, 30.0) * 1000
+
+    def kind(i: int) -> int:  # 0 descent (or any point of another sport), 1 climb, 2 the rest of a ski day
+        return 0 if not ski or s[i].down else (1 if s[i].up else 2)
+
+    def shown(i: int) -> bool:
+        return not ski or mode == "all" or s[i].down or (mode == "both" and s[i].up)
+
     out, i = [], 0
     while i < len(s) - 1:
-        if ski and not show_all and not s[i].down:
+        if not shown(i):
             i += 1
             continue
-        first, j, total = i, i, 0.0
-        while (j + 1 < len(s) and j - first < 8 and s[j + 1].time - s[j].time <= max_gap
-               and (not ski or show_all or s[j + 1].down)):
+        first, j, total, k = i, i, 0.0, kind(i)
+        while j + 1 < len(s) and j - first < 8 and s[j + 1].time - s[j].time <= max_gap and shown(j + 1) and kind(j + 1) == k:
             j += 1
             total += s[j].speed
         if j == first:
             i += 1
             continue
-        if ski and show_all and not s[first].down:
-            color = QColor("#9AA0A6")
-        else:
-            color = speed_color(total / (j - first) / top)
+        color = CLIMB if k == 1 else QColor("#9AA0A6") if k == 2 else speed_color(total / (j - first) / top)
         out.append(([(p.lat, p.lon) for p in s[first:j + 1]], color))
         i = j
     return out
@@ -243,10 +256,12 @@ class EditDialog(QDialog):
 
 class ActivityRow(QFrame):
     clicked = Signal(object)
+    toggled = Signal(object, bool)
 
-    def __init__(self, note: Note):
+    def __init__(self, note: Note, selecting: bool = False, checked: bool = False):
         super().__init__()
         self.note = note
+        self.selecting = selecting
         s = theme.scheme()
         self.setObjectName("row")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -254,6 +269,11 @@ class ActivityRow(QFrame):
                            f"#row:hover {{ background: {s.surface_high}; }} #row QLabel {{ background: transparent; }}")
         row = QHBoxLayout(self)
         row.setContentsMargins(14, 10, 14, 10)
+        if selecting:
+            box = QCheckBox()
+            box.setChecked(checked)
+            box.toggled.connect(lambda on: self.toggled.emit(self.note, on))
+            row.addWidget(box)
         emoji = QLabel(EMOJI.get(note.activity.sport, "📍"))
         emoji.setStyleSheet("font-size: 20pt;")
         row.addWidget(emoji)
@@ -269,7 +289,7 @@ class ActivityRow(QFrame):
         row.addLayout(col, 1)
 
     def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()):
+        if event.button() == Qt.MouseButton.LeftButton and self.rect().contains(event.position().toPoint()) and not self.selecting:
             self.clicked.emit(self.note)
         super().mouseReleaseEvent(event)
 
@@ -286,6 +306,8 @@ class ActivitiesScreen(QWidget):
         self.store: Store | None = None
         self.activities: list[Note] = []
         self.sport_filter: Sport | None = None
+        self.selecting = False
+        self.selected: set[str] = set()
         self.current: Note | None = None
         self.stack = QStackedWidget()
         outer = QVBoxLayout(self)
@@ -314,11 +336,20 @@ class ActivitiesScreen(QWidget):
         title.setStyleSheet("font-size: 16pt; font-weight: 700;")
         self.import_button = QPushButton("Importer FIT / GPX…")
         self.import_button.clicked.connect(self.import_files)
+        self.select_button = QPushButton("Sélectionner")
+        self.select_button.setCheckable(True)
+        self.select_button.toggled.connect(self._select_mode)
+        self.relief_button = QPushButton("Compléter l'altitude (relief)")
+        self.relief_button.clicked.connect(self.complete_altitudes)
+        self.status = QLabel()
         head.addWidget(self.back)
         head.addWidget(title)
         head.addStretch()
+        head.addWidget(self.select_button)
+        head.addWidget(self.relief_button)
         head.addWidget(self.import_button)
         layout.addLayout(head)
+        layout.addWidget(self.status)
         self.totals = QHBoxLayout()
         layout.addLayout(self.totals)
         self.filter = QComboBox()
@@ -346,6 +377,46 @@ class ActivitiesScreen(QWidget):
         self.activities = sorted((n for n in notes if n.activity), key=lambda n: -n.activity.start)
         self.rebuild()
 
+    def _select_mode(self, on: bool) -> None:
+        self.selecting = on
+        if not on:
+            self.selected.clear()
+        self.select_button.setText("Terminer la sélection" if on else "Sélectionner")
+        self._update_relief_button()
+        self.rebuild()
+
+    def _toggle(self, note: Note, checked: bool) -> None:
+        (self.selected.add if checked else self.selected.discard)(note.path)
+        self._update_relief_button()
+
+    def _update_relief_button(self) -> None:
+        self.relief_button.setText(f"Compléter l'altitude ({len(self.selected)})" if self.selected else "Compléter l'altitude (toutes)")
+
+    def complete_altitudes(self) -> None:
+        if self.store is None or not self.activities:
+            return
+        targets = [n for n in self.activities if not self.selected or n.path in self.selected]
+        answer = QMessageBox.question(
+            self, "Compléter l'altitude",
+            f"{len(targets)} activité(s). Pour celles dont le fichier n'a pas d'altitude, les positions (environ une par 30 m) "
+            "sont envoyées à opentopodata.org, à raison d'une requête par seconde.\n"
+            "Celles qui ont déjà une altitude (enregistrées avec le baromètre, ou déjà complétées) sont ignorées.")
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            def progress(text: str) -> None:
+                self.status.setText(text)
+                QApplication.processEvents()
+            done, skipped, failure = self.store.fill_altitudes(targets, progress)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.status.setText("")
+        self.selected.clear()
+        self.select_button.setChecked(False)
+        QMessageBox.information(self, "Altitude", f"{done} complétée(s), {skipped} ignorée(s)." + (f"\nArrêté : {failure}" if failure else ""))
+        self.changed.emit()
+
     def _filter_changed(self) -> None:
         self.sport_filter = self.filter.currentData()
         self.rebuild()
@@ -361,14 +432,19 @@ class ActivitiesScreen(QWidget):
         month_start = datetime(now.year, now.month, 1).timestamp() * 1000
         for name, since in (("Semaine", week_start), ("Mois", month_start), ("Total", 0)):
             items = [n.activity for n in self.activities if n.activity.start >= since]
+            # skiing is counted apart: its track includes the lifts, which would inflate distance and climb
+            other = [i for i in items if i.sport != Sport.SKI]
+            ski = [i for i in items if i.sport == Sport.SKI]
             frame, lay = card(name)
             lay.addWidget(QLabel(f"{len(items)} activité{'s' if len(items) > 1 else ''}"))
-            big = QLabel(act.fmt_distance(sum(i.distance for i in items)))
+            big = QLabel(act.fmt_distance(sum(i.distance for i in other)))
             big.setStyleSheet("font-size: 13pt; font-weight: 600;")
             lay.addWidget(big)
-            detail = act.fmt_duration(sum(i.moving for i in items))
-            ascent = sum(i.ascent for i in items)
+            detail = act.fmt_duration(sum(i.moving for i in other))
+            ascent = sum(i.ascent for i in other)
             lay.addWidget(QLabel(detail + (f" · ↑ {ascent} m" if ascent else "")))
+            if ski:
+                lay.addWidget(QLabel(f"⛷️ {sum(i.runs for i in ski)} desc. · {sum(i.drop for i in ski)} m"))
             self.totals.addWidget(frame)
         while self.rows.count():
             item = self.rows.takeAt(0)
@@ -380,8 +456,9 @@ class ActivitiesScreen(QWidget):
             hint.setStyleSheet(f"color: {s.on_surface_variant};")
             self.rows.addWidget(hint)
         for n in shown:
-            row = ActivityRow(n)
+            row = ActivityRow(n, self.selecting, n.path in self.selected)
             row.clicked.connect(self.open_activity)
+            row.toggled.connect(self._toggle)
             self.rows.addWidget(row)
 
     # ---- import ----
@@ -503,13 +580,14 @@ class ActivitiesScreen(QWidget):
                 tmap.set_data(lines, [(samples[0].lat, samples[0].lon, QColor("#00C853")), (samples[-1].lat, samples[-1].lon, QColor("#FF1744"))])
                 col.addWidget(tmap)
                 if ski:
-                    toggle = QPushButton("Afficher tout le tracé")
-                    toggle.setCheckable(True)
+                    modes = QComboBox()
+                    for label, key in (("Descentes + montées (en bleu)", "both"), ("Descentes seulement", "down"), ("Tout le tracé", "all")):
+                        modes.addItem(label, key)
 
-                    def switch(checked: bool, m=tmap, a=analysis, sm=samples) -> None:
-                        m.set_data(map_lines(a, True, checked), [(sm[0].lat, sm[0].lon, QColor("#00C853")), (sm[-1].lat, sm[-1].lon, QColor("#FF1744"))])
-                    toggle.toggled.connect(switch)
-                    col.addWidget(toggle)
+                    def switch(_i: int, m=tmap, a=analysis, sm=samples, box=modes) -> None:
+                        m.set_data(map_lines(a, True, box.currentData()), [(sm[0].lat, sm[0].lon, QColor("#00C853")), (sm[-1].lat, sm[-1].lon, QColor("#FF1744"))])
+                    modes.currentIndexChanged.connect(switch)
+                    col.addWidget(modes)
 
         frame, lay = card("Résumé")
         items = []
@@ -523,7 +601,7 @@ class ActivitiesScreen(QWidget):
                               act.fmt_speed_for(info.sport, info.distance / info.moving)))
             if info.vmax and not ski:
                 items.append(("Allure max" if info.sport == Sport.WALK else "Vitesse max", act.fmt_speed_for(info.sport, info.vmax)))
-            if analysis is None or analysis.quality.has_altitude:
+            if (analysis is None or analysis.quality.has_altitude) and not ski:
                 items.append(("Dénivelé +", f"{info.ascent} m"))
                 items.append(("Dénivelé −", f"{info.descent} m"))
         elif info.distance > 0 and info.elapsed > 0:
@@ -537,7 +615,7 @@ class ActivitiesScreen(QWidget):
 
         if analysis is not None and ski:
             st = analysis.stats
-            frame, lay = card("Ski · descentes seulement")
+            frame, lay = card("Ski")
             if st.runs == 0:
                 lay.addWidget(QLabel("Aucune descente détectée."))
             else:
@@ -547,7 +625,11 @@ class ActivitiesScreen(QWidget):
                     ("Vitesse max", act.fmt_speed(st.run_max_speed)),
                     ("Vitesse moyenne", act.fmt_speed(st.run_avg_speed)),
                     ("Plus longue", act.fmt_distance(st.run_longest)),
+                    ("Montées", f"{st.climbs} · +{round(st.climb_gain)} m" if analysis.quality.has_altitude else "–"),
                 ]))
+                note_label = QLabel("Sur la carte : descentes du violet au rouge selon la vitesse, montées en bleu.")
+                note_label.setStyleSheet(f"color: {s.on_surface_variant}; font-size: 8.5pt;")
+                lay.addWidget(note_label)
             col.addWidget(frame)
 
         if analysis is not None:

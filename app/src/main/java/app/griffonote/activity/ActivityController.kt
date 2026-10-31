@@ -207,30 +207,77 @@ class ActivityController(
         }
     }
 
+    private enum class Outcome { DONE, SKIPPED, FAILED }
+
     private suspend fun lookUpAltitude(note: Note, quiet: Boolean): Note {
-        val info = note.activity ?: return note
-        val file = info.file ?: return note
-        reliefProgress = "Relief…"
+        val (saved, outcome, message) = lookUp(note)
+        if (outcome == Outcome.FAILED && !quiet) say(Snack("Altitude indisponible : $message"))
+        if (outcome == Outcome.SKIPPED && !quiet) say(Snack(message ?: "Rien à compléter"))
+        return saved
+    }
+
+    private data class LookUp(val note: Note, val outcome: Outcome, val message: String?)
+
+    /** One activity: reads its file, and if it has no altitude looks it up and keeps it in an .alt file. */
+    private suspend fun lookUp(note: Note): LookUp {
+        val info = note.activity ?: return LookUp(note, Outcome.SKIPPED, null)
+        val file = info.file ?: return LookUp(note, Outcome.SKIPPED, null)
+        if (info.alt != null || !info.sport.hasGps) return LookUp(note, Outcome.SKIPPED, "Cette activité a déjà une altitude")
         return try {
             withContext(io) {
                 val bytes = repo.fs.readBytes(file) ?: throw java.io.IOException("Fichier introuvable")
                 val track = if (Fit.looksLikeFit(bytes)) Fit.read(bytes) else Gpx.read(String(bytes, Charsets.UTF_8))
-                if (!Elevation.missing(track)) throw Elevation.ElevationException("Ce fichier a déjà une altitude")
+                if (!Elevation.missing(track)) return@withContext LookUp(note, Outcome.SKIPPED, "Cette activité a déjà une altitude")
                 val alts = Elevation.query(
                     Elevation.pick(Analyzer.clean(track)), get = ::httpGet, pause = { Thread.sleep(1100) },
-                    progress = { n, total -> reliefProgress = "Relief ${n + 1}/$total…" },
+                    progress = { n, total -> reliefProgress = "$reliefPrefix${n + 1}/$total…" },
                 )
                 val sidecar = file.substringBeforeLast('.') + ".alt"
                 repo.fs.writeText(sidecar, Elevation.encode(alts))
                 val filled = Elevation.apply(track, alts)
                 val newInfo = ActivityInfo.from(info.sport, Analyzer.analyze(filled, info.sport), filled, file, sidecar)
-                repo.save(note.copy(activity = newInfo, attachments = if (sidecar in note.attachments) note.attachments else note.attachments + sidecar, updated = System.currentTimeMillis()))
+                LookUp(
+                    repo.save(note.copy(activity = newInfo, attachments = if (sidecar in note.attachments) note.attachments else note.attachments + sidecar, updated = System.currentTimeMillis())),
+                    Outcome.DONE, null,
+                )
             }
         } catch (e: Exception) {
-            say(Snack("Altitude indisponible : ${e.message}"))
-            note
-        } finally {
-            reliefProgress = null
+            LookUp(note, Outcome.FAILED, e.message)
+        }
+    }
+
+    private var reliefPrefix = "Relief "
+
+    /** Completes several activities one after the other; stops at the first service failure (quota, offline). */
+    fun fillAltitudes(notes: List<Note>) {
+        if (reliefProgress != null) return
+        scope.launch {
+            var done = 0
+            var skipped = 0
+            var failure: String? = null
+            reliefProgress = "Relief…"
+            try {
+                for ((i, n) in notes.withIndex()) {
+                    reliefPrefix = "Activité ${i + 1}/${notes.size} · "
+                    val fresh = repo.activities.value.firstOrNull { it.path == n.path } ?: n
+                    val r = lookUp(fresh)
+                    when (r.outcome) {
+                        Outcome.DONE -> done++
+                        Outcome.SKIPPED -> skipped++
+                        Outcome.FAILED -> { failure = r.message; break }
+                    }
+                }
+            } finally {
+                reliefPrefix = "Relief "
+                reliefProgress = null
+            }
+            say(
+                Snack(
+                    "Altitude : $done complétée${if (done > 1) "s" else ""}, $skipped ignorée${if (skipped > 1) "s" else ""}" +
+                        (failure?.let { ". Arrêté : $it" } ?: ""),
+                ),
+            )
+            detail?.let { d -> repo.activities.value.firstOrNull { it.path == d.note.path }?.let { open(it) } }
         }
     }
 

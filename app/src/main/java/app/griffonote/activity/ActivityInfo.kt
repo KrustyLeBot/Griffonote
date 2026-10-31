@@ -22,6 +22,9 @@ data class ActivityInfo(
     val file: String? = null,
     /** Altitude looked up from the terrain model for a file that had none (`attachments/….alt`). */
     val alt: String? = null,
+    /** Skiing: climbs (lifts, uphill) and metres skied down. */
+    val climbs: Int = 0,
+    val drop: Int = 0,
 ) {
     fun toJson(): String = buildString {
         append("{\"sport\": \"").append(sport.key).append('"')
@@ -34,6 +37,8 @@ data class ActivityInfo(
         hr?.let { append(", \"hr\": ").append(it) }
         vmax?.let { append(", \"vmax\": ").append(String.format(Locale.ROOT, "%.2f", it)) }
         if (runs > 0) append(", \"runs\": ").append(runs)
+        if (climbs > 0) append(", \"climbs\": ").append(climbs)
+        if (drop > 0) append(", \"drop\": ").append(drop)
         file?.let { append(", \"file\": \"").append(it.replace("\\", "\\\\").replace("\"", "\\\"")).append('"') }
         alt?.let { append(", \"alt\": \"").append(it.replace("\\", "\\\\").replace("\"", "\\\"")).append('"') }
         append('}')
@@ -61,6 +66,8 @@ data class ActivityInfo(
                 runs = map["runs"]?.toDoubleOrNull()?.toInt() ?: 0,
                 file = map["file"]?.ifEmpty { null },
                 alt = map["alt"]?.ifEmpty { null },
+                climbs = map["climbs"]?.toDoubleOrNull()?.toInt() ?: 0,
+                drop = map["drop"]?.toDoubleOrNull()?.toInt() ?: 0,
             )
         }
 
@@ -79,6 +86,8 @@ data class ActivityInfo(
                 runs = s.runs,
                 file = file,
                 alt = alt,
+                climbs = s.climbs,
+                drop = Math.round(s.runDrop).toInt(),
             )
         }
     }

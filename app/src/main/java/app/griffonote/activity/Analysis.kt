@@ -16,6 +16,8 @@ data class Sample(
     val hr: Int?,
     /** Part of a ski descent. */
     val down: Boolean,
+    /** Part of a ski climb (lift, uphill). */
+    val up: Boolean = false,
     /** Inside a stop (manual pause excluded: those are not samples at all). */
     val stopped: Boolean,
 )
@@ -27,6 +29,8 @@ data class Stop(val start: Long, val end: Long, val lat: Double, val lon: Double
 data class Run(val first: Int, val last: Int, val distance: Double, val drop: Double, val maxSpeed: Double, val durationMs: Long) {
     val avgSpeed: Double get() = if (durationMs > 0) distance / (durationMs / 1000.0) else 0.0
 }
+
+data class Climb(val first: Int, val last: Int, val distance: Double, val gain: Double, val durationMs: Long)
 
 data class Stats(
     val elapsedMs: Long,
@@ -44,6 +48,8 @@ data class Stats(
     val runMaxSpeed: Double,
     val runAvgSpeed: Double,
     val runLongest: Double,
+    val climbs: Int = 0,
+    val climbGain: Double = 0.0,
 ) {
     val avgSpeed: Double get() = if (movingMs > 0) distance / (movingMs / 1000.0) else 0.0
 }
@@ -62,6 +68,7 @@ data class Analysis(
     val stops: List<Stop>,
     val pauses: List<Stop>,
     val runs: List<Run>,
+    val climbs: List<Climb>,
     val stats: Stats,
     val quality: Quality,
 )
@@ -80,6 +87,10 @@ object Analyzer {
     const val RUN_MIN_DROP = 20.0
     const val RUN_MIN_MS = 15_000L
     const val PAUSE_BRIDGE = 100.0 // m
+    const val UP_RATE = 0.15 // m/s of altitude
+    const val CLIMB_MERGE_MS = 40_000L
+    const val CLIMB_MIN_GAIN = 30.0
+    const val CLIMB_MIN_MS = 60_000L
     const val MAX_WINDOW_MS = 15_000L
 
     fun analyze(track: Track, sport: Sport): Analysis {
@@ -171,6 +182,39 @@ object Analyzer {
             }
         }
 
+        // ski climbs: altitude going up for a while (lifts, uphill), short stops inside them allowed
+        val up = BooleanArray(n)
+        val climbs = ArrayList<Climb>()
+        if (sport == Sport.SKI && hasAlt && n > 1) {
+            val stepUp = BooleanArray(n)
+            for (k in 1 until n) {
+                if (seg[k] != seg[k - 1]) continue
+                val dt = (kept[k].time - kept[k - 1].time) / 1000.0
+                if (dt > 0 && alt[k] != null && alt[k - 1] != null) stepUp[k] = (alt[k]!! - alt[k - 1]!!) / dt >= UP_RATE
+            }
+            var k = 1
+            while (k < n) {
+                if (!stepUp[k]) { k++; continue }
+                var end = k
+                var m = k + 1
+                while (m < n && seg[m] == seg[k]) {
+                    if (stepUp[m]) { end = m; m++; continue }
+                    var q = m
+                    while (q < n && !stepUp[q] && seg[q] == seg[k] && kept[q].time - kept[end].time <= CLIMB_MERGE_MS) q++
+                    if (q < n && stepUp[q] && seg[q] == seg[k] && kept[q].time - kept[end].time <= CLIMB_MERGE_MS) { m = q; continue }
+                    break
+                }
+                val first = k - 1
+                val gain = if (alt[first] != null && alt[end] != null) alt[end]!! - alt[first]!! else 0.0
+                val dur = kept[end].time - kept[first].time
+                if (gain >= CLIMB_MIN_GAIN && dur >= CLIMB_MIN_MS) {
+                    for (q in first..end) if (!down[q]) up[q] = true
+                    climbs.add(Climb(first, end, cum[end] - cum[first], gain, dur))
+                }
+                k = end + 1
+            }
+        }
+
         // climb with hysteresis
         var ascent = 0.0
         var descent = 0.0
@@ -184,7 +228,7 @@ object Analyzer {
         }
 
         val samples = List(n) { k ->
-            Sample(kept[k].time, kept[k].lat, kept[k].lon, cum[k], alt[k], speed[k], kept[k].hr, down[k], stopIdx[k])
+            Sample(kept[k].time, kept[k].lat, kept[k].lon, cum[k], alt[k], speed[k], kept[k].hr, down[k], up[k], stopIdx[k])
         }
         val pauseStops = track.pauses.map { p ->
             val ref0 = kept.lastOrNull { it.time <= p.start } ?: kept.firstOrNull()
@@ -209,13 +253,15 @@ object Analyzer {
             runMaxSpeed = runs.maxOfOrNull { it.maxSpeed } ?: 0.0,
             runAvgSpeed = if (runs.isNotEmpty()) runs.sumOf { it.distance } / (runs.sumOf { it.durationMs } / 1000.0) else 0.0,
             runLongest = runs.maxOfOrNull { it.distance } ?: 0.0,
+            climbs = climbs.size,
+            climbGain = climbs.sumOf { it.gain },
         )
         val quality = Quality(
             points = total, dropped = total - n, hasAltitude = hasAlt, hasHr = hrs.isNotEmpty() || track.hrAvg != null,
             medianIntervalSec = if (intervals.isEmpty()) 0.0 else intervals[intervals.size / 2],
             manufacturer = track.manufacturer,
         )
-        return Analysis(samples, stops, pauseStops, runs, stats, quality)
+        return Analysis(samples, stops, pauseStops, runs, climbs, stats, quality)
     }
 
     /** The device's own total when the file has one and it is in the same range as ours (its sensors know more). */

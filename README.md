@@ -55,6 +55,10 @@ week, the month and overall, then the latest activities (walking, cycling, elect
   result is kept in `attachments/<name>.alt` (`time ms,altitude` lines; `alt` in the activity frontmatter). The
   FIT/GPX file itself is never modified. Without altitude, skiing descents fall back on speed, which also picks up
   gondolas.
+- Skiing: climbs (lifts, uphill: altitude going up for at least a minute and 30 m, short stops allowed) are counted
+  and drawn in blue next to the descents. Totals leave skiing out of the distance, time and climb figures (its track
+  includes the lifts) and give it its own line (descents, metres skied down). The altitude of several activities can
+  be completed in one go (selection, or all): those that already have one are skipped.
 - Altitude when recording: the barometer gives the changes, the GPS keeps it honest (the gap between both is
   followed with a 5 minute time constant). The consolidated altitude is the standard FIT field; the raw GPS
   altitude and the pressure are kept as developer fields (`gps_altitude`, `pressure`).

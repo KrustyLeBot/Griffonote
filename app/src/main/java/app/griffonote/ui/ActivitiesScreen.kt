@@ -1,8 +1,11 @@
 package app.griffonote.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -48,16 +51,26 @@ import app.griffonote.activity.Sport
 import app.griffonote.record.Recorder
 import app.griffonote.suite.SuiteTopBar
 
-private data class Totals(val count: Int, val distance: Double, val seconds: Long, val ascent: Int)
+/** Skiing is counted apart: its track includes the lifts, so its distance and climb would inflate the other totals. */
+private data class Totals(val count: Int, val distance: Double, val seconds: Long, val ascent: Int, val skiDays: Int, val skiRuns: Int, val skiDrop: Int)
 
-private fun totals(list: List<ActivityInfo>) = Totals(list.size, list.sumOf { it.distance }, list.sumOf { it.moving }, list.sumOf { it.ascent })
+private fun totals(list: List<ActivityInfo>): Totals {
+    val other = list.filter { it.sport != Sport.SKI }
+    val ski = list.filter { it.sport == Sport.SKI }
+    return Totals(list.size, other.sumOf { it.distance }, other.sumOf { it.moving }, other.sumOf { it.ascent }, ski.size, ski.sumOf { it.runs }, ski.sumOf { it.drop })
+}
 
 /** The "Activités" folder: figures for the week, the month and overall, then the latest activities. */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun ActivitiesScreen(vm: MainViewModel) {
     val all by vm.activities.activities.collectAsState()
     val live by Recorder.state.collectAsState()
     var filter by remember { mutableStateOf<Sport?>(null) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var askRelief by remember { mutableStateOf(false) }
+    val selecting = selected.isNotEmpty()
+    BackHandler(enabled = selecting) { selected = emptySet() }
     val snackbar = remember { SnackbarHostState() }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.activities.startImport(uri)
@@ -88,6 +101,20 @@ fun ActivitiesScreen(vm: MainViewModel) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { vm.openRecord() }, modifier = Modifier.weight(1f)) { Text("Enregistrer") }
                     OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Importer FIT / GPX") }
+                }
+            }
+            item {
+                if (selecting) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${selected.size} sélectionnée${if (selected.size > 1) "s" else ""}", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { selected = shown.map { it.first.path }.toSet() }) { Text("Tout") }
+                        TextButton(onClick = { selected = emptySet() }) { Text("Annuler") }
+                        Button(onClick = { askRelief = true }) { Text("Altitude") }
+                    }
+                } else if (infos.isNotEmpty()) {
+                    OutlinedButton(onClick = { askRelief = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Compléter l'altitude de toutes les activités (relief)")
+                    }
                 }
             }
             live?.let { l ->
@@ -139,8 +166,31 @@ fun ActivitiesScreen(vm: MainViewModel) {
                     )
                 }
             }
-            items(shown, key = { it.first.path }) { (note, info) -> ActivityRow(note, info) { vm.openActivity(note) } }
+            items(shown, key = { it.first.path }) { (note, info) ->
+                ActivityRow(
+                    note, info, selecting, note.path in selected,
+                    onClick = { if (selecting) selected = if (note.path in selected) selected - note.path else selected + note.path else vm.openActivity(note) },
+                    onLongClick = { selected = selected + note.path },
+                )
+            }
         }
+    }
+
+    if (askRelief) {
+        val targets = if (selecting) infos.filter { it.first.path in selected }.map { it.first } else infos.map { it.first }
+        AlertDialog(
+            onDismissRequest = { askRelief = false },
+            title = { Text("Compléter l'altitude") },
+            text = {
+                Text(
+                    "${targets.size} activité${if (targets.size > 1) "s" else ""}. Pour celles dont le fichier n'a pas d'altitude, les positions " +
+                        "(environ une par 30 m) sont envoyées à opentopodata.org, à raison d'une requête par seconde. " +
+                        "Celles qui ont déjà une altitude (enregistrées avec le baromètre, ou déjà complétées) sont ignorées.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { askRelief = false; vm.activities.fillAltitudes(targets); selected = emptySet() }) { Text("Lancer") } },
+            dismissButton = { TextButton(onClick = { askRelief = false }) { Text("Annuler") } },
+        )
     }
 
     vm.activities.pending?.let { p ->
@@ -196,18 +246,20 @@ private fun SummaryCard(title: String, t: Totals, modifier: Modifier) {
             Text(Fmt.distance(t.distance), fontWeight = FontWeight.SemiBold)
             Text(Fmt.duration(t.seconds), style = MaterialTheme.typography.bodySmall)
             if (t.ascent > 0) Text("↑ ${t.ascent} m", style = MaterialTheme.typography.bodySmall)
+            if (t.skiDays > 0) Text("⛷️ ${t.skiRuns} desc. · ${t.skiDrop} m", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
 @Composable
-private fun ActivityRow(note: Note, info: ActivityInfo, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun ActivityRow(note: Note, info: ActivityInfo, selecting: Boolean, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer),
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selecting) androidx.compose.material3.Checkbox(selected, null, Modifier.padding(end = 8.dp))
             Text(sportEmoji(info.sport), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(end = 12.dp))
             Column(Modifier.weight(1f)) {
                 Text(note.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -220,10 +272,16 @@ private fun ActivityRow(note: Note, info: ActivityInfo, onClick: () -> Unit) {
 
 fun summaryLine(i: ActivityInfo): String {
     val parts = ArrayList<String>()
+    if (i.sport == Sport.SKI) {
+        // the whole track includes the lifts: what counts for skiing is the descents
+        parts.add(Fmt.duration(if (i.moving > 0) i.moving else i.elapsed))
+        if (i.runs > 0) parts.add("${i.runs} descentes" + if (i.drop > 0) " · ${i.drop} m" else "")
+        if (i.climbs > 0) parts.add("${i.climbs} montées")
+        return parts.joinToString(" · ")
+    }
     if (i.distance > 0) parts.add(Fmt.distance(i.distance))
     parts.add(Fmt.duration(if (i.moving > 0) i.moving else i.elapsed))
     if (i.sport.hasGps && i.moving > 0 && i.distance > 0) parts.add(Fmt.speedFor(i.sport, i.distance / i.moving))
     if (i.ascent > 0) parts.add("↑ ${i.ascent} m")
-    if (i.sport == Sport.SKI && i.runs > 0) parts.add("${i.runs} descentes")
     return parts.joinToString(" · ")
 }

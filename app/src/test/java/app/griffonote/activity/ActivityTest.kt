@@ -171,6 +171,10 @@ class AnalysisTest {
         }
         val res = Analyzer.analyze(Track(all), Sport.SKI)
         assertEquals(3, res.stats.runs)
+        assertEquals(3, res.stats.climbs)
+        assertTrue("climb gain ${res.stats.climbGain}", abs(res.stats.climbGain - 3 * 150.0) < 40.0)
+        assertTrue(res.samples.any { it.up })
+        assertTrue(res.samples.none { it.up && it.down })
         assertTrue("run drop ${res.stats.runDrop}", abs(res.stats.runDrop - 3 * 144.0) < 40.0)
         assertTrue("run speed ${res.stats.runMaxSpeed}", abs(res.stats.runMaxSpeed - 12.0) < 1.0)
         assertTrue(res.samples.any { it.down })
@@ -206,7 +210,7 @@ class AnalysisTest {
 class InfoAndFusionTest {
     @Test
     fun infoRoundTripsThroughTheNoteFrontmatter() {
-        val info = ActivityInfo(Sport.SKI, T0, 7200, 6000, 25432.4, 410, 1500, 128, 21.3, 9, "attachments/ski-ab12cd.fit")
+        val info = ActivityInfo(Sport.SKI, T0, 7200, 6000, 25432.4, 410, 1500, 128, 21.3, 9, "attachments/ski-ab12cd.fit", null, 8, 3400)
         val note = Note(path = "activities/ski-ab12cd.md", id = "ab12cd", title = "Ski à La Plagne", created = T0, updated = T0, activity = info, attachments = listOf("attachments/ski-ab12cd.fit"))
         val text = NoteFormat.serialize(note)
         assertTrue(text.contains("activity: {\"sport\": \"ski\""))
@@ -215,6 +219,8 @@ class InfoAndFusionTest {
         assertEquals(info.start, back.activity!!.start)
         assertEquals(25432.4, back.activity!!.distance, 0.05)
         assertEquals(9, back.activity!!.runs)
+        assertEquals(8, back.activity!!.climbs)
+        assertEquals(3400, back.activity!!.drop)
         assertEquals("attachments/ski-ab12cd.fit", back.activity!!.file)
         assertEquals(21.3, back.activity!!.vmax!!, 0.01)
     }

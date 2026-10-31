@@ -69,14 +69,14 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var fullMap by remember { mutableStateOf(false) }
-    var showAll by remember { mutableStateOf(false) }
+    var skiMap by remember { mutableStateOf(SkiMap.BOTH) }
     var distanceDialog by remember { mutableStateOf(false) }
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) vm.activities.addPhoto(note, uri)
     }
     val analysis = detail.analysis
     val ski = detail.sport == Sport.SKI
-    val lines = remember(analysis, showAll) { analysis?.let { mapLines(it, ski, showAll) }.orEmpty() }
+    val lines = remember(analysis, skiMap) { analysis?.let { mapLines(it, ski, skiMap) }.orEmpty() }
     val dots = remember(analysis) {
         val s = analysis?.samples.orEmpty()
         if (s.size < 2) emptyList() else listOf(MapDot(s.first().lat, s.first().lon, Color(0xFF00C853)), MapDot(s.last().lat, s.last().lon, Color(0xFFFF1744)))
@@ -132,8 +132,9 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                 }
                 if (ski) {
                     Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !showAll, onClick = { showAll = false }, label = { Text("Descentes") })
-                        FilterChip(selected = showAll, onClick = { showAll = true }, label = { Text("Tout le tracé") })
+                        FilterChip(selected = skiMap == SkiMap.BOTH, onClick = { skiMap = SkiMap.BOTH }, label = { Text("Descentes + montées") })
+                        FilterChip(selected = skiMap == SkiMap.DOWN, onClick = { skiMap = SkiMap.DOWN }, label = { Text("Descentes") })
+                        FilterChip(selected = skiMap == SkiMap.ALL, onClick = { skiMap = SkiMap.ALL }, label = { Text("Tout") })
                     }
                 }
             }
@@ -150,7 +151,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                             items.add((if (info.sport == Sport.WALK) "Allure moyenne" else "Vitesse moyenne") to Fmt.speedFor(info.sport, info.distance / moving))
                         }
                         info.vmax?.let { if (!ski) items.add((if (info.sport == Sport.WALK) "Allure max" else "Vitesse max") to Fmt.speedFor(info.sport, it)) }
-                        if (analysis?.quality?.hasAltitude != false) {
+                        if (analysis?.quality?.hasAltitude != false && !ski) {
                             items.add("Dénivelé +" to "${info.ascent} m")
                             items.add("Dénivelé −" to "${info.descent} m")
                         }
@@ -168,7 +169,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
 
             if (analysis != null && ski) {
                 val st = analysis.stats
-                Section("Ski · descentes seulement") {
+                Section("Ski") {
                     if (st.runs == 0) {
                         Text("Aucune descente détectée.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
@@ -179,8 +180,10 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                                 "Vitesse max" to Fmt.speed(st.runMaxSpeed),
                                 "Vitesse moyenne" to Fmt.speed(st.runAvgSpeed),
                                 "Plus longue" to Fmt.distance(st.runLongest),
+                                "Montées" to if (analysis.quality.hasAltitude) "${st.climbs} · +${Math.round(st.climbGain)} m" else "–",
                             ),
                         )
+                        Text("Sur la carte : descentes du violet au rouge selon la vitesse, montées en bleu.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

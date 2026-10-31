@@ -150,3 +150,32 @@ def test_reimporting_the_same_recording_replaces_the_activity_and_keeps_the_phot
     assert relative in again.attachments and again.activity.file in again.attachments
     assert len(store.scan_activities()) == 1
     assert not (tmp_path / first.activity.file).exists() or first.activity.file == again.activity.file
+
+
+def test_filling_altitudes_in_bulk_skips_what_already_has_one(tmp_path, monkeypatch):
+    from pathlib import Path
+    from griffonote_win.core import elevation
+    from griffonote_win.core.store import Store
+    gpx = tmp_path / "ski.gpx"
+    pts = "".join(f'<trkpt lat="{45 + i * 8 / 111320:.7f}" lon="6.0"><time>2024-01-01T10:{i // 60:02d}:{i % 60:02d}Z</time></trkpt>'
+                  for i in range(200))
+    gpx.write_text(f'<?xml version="1.0"?><gpx><trk><trkseg>{pts}</trkseg></trk></gpx>', encoding="utf-8")
+    store = Store(tmp_path / "notes")
+    without = store.import_activity(gpx, "Sans altitude", None)
+    with_alt = store.import_activity(Path(__file__).parent / "data" / "synthetic.fit", "Avec altitude", None)
+    calls = []
+
+    def fake_query(samples, **kwargs):
+        calls.append(len(samples))
+        return [(p.time, 1000.0 - i) for i, p in enumerate(samples)]
+
+    monkeypatch.setattr(elevation, "query", fake_query)
+    done, skipped, failure = store.fill_altitudes([without, with_alt])
+    assert (done, skipped, failure) == (1, 1, None)
+    assert len(calls) == 1
+    filled = next(n for n in store.scan_activities() if n.title == "Sans altitude")
+    assert filled.activity.alt and (tmp_path / "notes" / filled.activity.alt).is_file()
+    assert filled.activity.alt in filled.attachments
+    assert filled.activity.ascent == 0 and filled.activity.descent > 0  # the altitude is read back
+    # a second pass has nothing left to do
+    assert store.fill_altitudes([filled])[:2] == (0, 1)

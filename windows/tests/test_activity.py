@@ -115,6 +115,10 @@ class AnalysisTest(unittest.TestCase):
             last = lift[-1]
         res = analysis.analyze(Track(pts), Sport.SKI)
         self.assertEqual(3, res.stats.runs)
+        self.assertEqual(3, res.stats.climbs)
+        self.assertLess(abs(res.stats.climb_gain - 3 * 150.0), 40.0)
+        self.assertTrue(any(x.up for x in res.samples))
+        self.assertFalse(any(x.up and x.down for x in res.samples))
         self.assertLess(abs(res.stats.run_drop - 3 * 144.0), 40.0)
         self.assertLess(abs(res.stats.run_max_speed - 12.0), 1.0)
         self.assertGreater(min(s.speed for s in res.samples if s.down), 3.0)
@@ -140,7 +144,7 @@ class AnalysisTest(unittest.TestCase):
 
 class InfoTest(unittest.TestCase):
     def test_info_round_trips_through_the_note(self):
-        info = act.ActivityInfo(Sport.SKI, T0, 7200, 6000, 25432.4, 410, 1500, 128, 21.3, 9, "attachments/ski-ab12cd.fit")
+        info = act.ActivityInfo(Sport.SKI, T0, 7200, 6000, 25432.4, 410, 1500, 128, 21.3, 9, "attachments/ski-ab12cd.fit", None, 8, 3400)
         n = fmt.Note(path="activities/ski-ab12cd.md", id="ab12cd", title="Ski à La Plagne", created=T0, updated=T0,
                      activity=info, attachments=["attachments/ski-ab12cd.fit"])
         text = fmt.serialize(n)
@@ -149,6 +153,8 @@ class InfoTest(unittest.TestCase):
         self.assertEqual(Sport.SKI, back.activity.sport)
         self.assertAlmostEqual(25432.4, back.activity.distance, places=1)
         self.assertEqual(9, back.activity.runs)
+        self.assertEqual(8, back.activity.climbs)
+        self.assertEqual(3400, back.activity.drop)
         self.assertEqual("attachments/ski-ab12cd.fit", back.activity.file)
 
     def test_the_kotlin_serialisation_parses_here(self):

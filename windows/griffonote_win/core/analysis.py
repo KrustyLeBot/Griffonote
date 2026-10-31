@@ -18,6 +18,10 @@ RUN_MERGE_MS = 15_000
 RUN_MIN_DROP = 20.0
 RUN_MIN_MS = 15_000
 PAUSE_BRIDGE = 100.0      # m
+UP_RATE = 0.15            # m/s of altitude
+CLIMB_MERGE_MS = 40_000
+CLIMB_MIN_GAIN = 30.0
+CLIMB_MIN_MS = 60_000
 MAX_WINDOW_MS = 15_000
 
 
@@ -32,6 +36,7 @@ class Sample:
     hr: int | None
     down: bool
     stopped: bool
+    up: bool = False       # part of a ski climb (lift, uphill)
 
 
 @dataclass
@@ -62,6 +67,15 @@ class Run:
 
 
 @dataclass
+class Climb:
+    first: int
+    last: int
+    distance: float
+    gain: float
+    duration_ms: int
+
+
+@dataclass
 class Stats:
     elapsed_ms: int = 0
     moving_ms: int = 0
@@ -78,6 +92,8 @@ class Stats:
     run_max_speed: float = 0.0
     run_avg_speed: float = 0.0
     run_longest: float = 0.0
+    climbs: int = 0
+    climb_gain: float = 0.0
 
     @property
     def avg_speed(self) -> float:
@@ -100,6 +116,7 @@ class Analysis:
     stops: list[Stop]
     pauses: list[Stop]
     runs: list[Run]
+    climbs: list[Climb]
     stats: Stats
     quality: Quality = field(default_factory=Quality)
 
@@ -211,6 +228,45 @@ def analyze(track: Track, sport: Sport) -> Analysis:
                 runs.append(Run(first, end, cum[end] - cum[first], max(drop, 0.0), vmax, dur))
             k = end + 1
 
+    up = [False] * n
+    climbs: list[Climb] = []
+    if sport == Sport.SKI and has_alt and n > 1:
+        step_up = [False] * n
+        for k in range(1, n):
+            if seg[k] != seg[k - 1]:
+                continue
+            dt = (kept[k].time - kept[k - 1].time) / 1000
+            if dt > 0 and alt[k] is not None and alt[k - 1] is not None:
+                step_up[k] = (alt[k] - alt[k - 1]) / dt >= UP_RATE
+        k = 1
+        while k < n:
+            if not step_up[k]:
+                k += 1
+                continue
+            end = k
+            m = k + 1
+            while m < n and seg[m] == seg[k]:
+                if step_up[m]:
+                    end = m
+                    m += 1
+                    continue
+                q = m
+                while q < n and not step_up[q] and seg[q] == seg[k] and kept[q].time - kept[end].time <= CLIMB_MERGE_MS:
+                    q += 1
+                if q < n and step_up[q] and seg[q] == seg[k] and kept[q].time - kept[end].time <= CLIMB_MERGE_MS:
+                    m = q
+                    continue
+                break
+            first = k - 1
+            gain = alt[end] - alt[first] if alt[first] is not None and alt[end] is not None else 0.0
+            dur = kept[end].time - kept[first].time
+            if gain >= CLIMB_MIN_GAIN and dur >= CLIMB_MIN_MS:
+                for q in range(first, end + 1):
+                    if not down[q]:
+                        up[q] = True
+                climbs.append(Climb(first, end, cum[end] - cum[first], gain, dur))
+            k = end + 1
+
     ascent = descent = 0.0
     ref = None
     for a in alt:
@@ -225,7 +281,7 @@ def analyze(track: Track, sport: Sport) -> Analysis:
             descent += ref - a
             ref = a
 
-    samples = [Sample(kept[k].time, kept[k].lat, kept[k].lon, cum[k], alt[k], speed[k], kept[k].hr, down[k], stop_idx[k])
+    samples = [Sample(kept[k].time, kept[k].lat, kept[k].lon, cum[k], alt[k], speed[k], kept[k].hr, down[k], stop_idx[k], up[k])
                for k in range(n)]
     pause_stops = []
     if kept:
@@ -252,12 +308,13 @@ def analyze(track: Track, sport: Sport) -> Analysis:
         run_max_speed=max((r.max_speed for r in runs), default=0.0),
         run_avg_speed=sum(r.distance for r in runs) / (run_ms / 1000) if run_ms else 0.0,
         run_longest=max((r.distance for r in runs), default=0.0),
+        climbs=len(climbs), climb_gain=sum(c.gain for c in climbs),
     )
     quality = Quality(
         points=total, dropped=total - n, has_altitude=has_alt, has_hr=bool(hrs) or track.hr_avg is not None,
         median_interval_sec=intervals[len(intervals) // 2] if intervals else 0.0, manufacturer=track.manufacturer,
     )
-    return Analysis(samples, stops, pause_stops, runs, stats, quality)
+    return Analysis(samples, stops, pause_stops, runs, climbs, stats, quality)
 
 
 def _max_window_speed(p: list[TrackPoint], seg: list[int], cum: list[float]) -> float:

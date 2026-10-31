@@ -243,6 +243,30 @@ class Store:
         attachments = note.attachments if relative in note.attachments else note.attachments + [relative]
         return self.save(note.copy(activity=new_info, attachments=attachments, updated=now_ms()))
 
+    def fill_altitudes(self, notes: list[Note], progress=lambda text: None) -> tuple[int, int, str | None]:
+        """Completes the altitude of several activities, one after the other: (done, skipped, failure).
+        Activities that already have an altitude (recorded with the barometer, or already completed) are skipped;
+        the first service failure (quota, offline) stops the run."""
+        done = skipped = 0
+        for i, note in enumerate(notes):
+            info = note.activity
+            if info is None or not info.file or info.alt or not info.sport.has_gps:
+                skipped += 1
+                continue
+            try:
+                progress(f"Activité {i + 1}/{len(notes)}…")
+                before = note.activity.alt
+                saved = self.fetch_altitude(note, progress=lambda n, total, i=i: progress(f"Activité {i + 1}/{len(notes)} · relief {n + 1}/{total}…"))
+                done += 1 if saved.activity.alt != before else 0
+            except elevation.ElevationError as error:
+                if "déjà une altitude" in str(error):
+                    skipped += 1
+                    continue
+                return done, skipped, str(error)
+            except OSError as error:
+                return done, skipped, str(error)
+        return done, skipped, None
+
     def update_activity(self, note: Note, title: str, description: str, sport: Sport) -> Note:
         info = note.activity
         if info is not None and info.sport != sport:
