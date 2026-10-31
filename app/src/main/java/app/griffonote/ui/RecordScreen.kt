@@ -174,9 +174,12 @@ private fun SportButton(s: Sport, selected: Boolean, modifier: Modifier, onClick
         colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = container),
         modifier = modifier,
     ) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.fillMaxWidth().height(96.dp).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(sportEmoji(s), fontSize = 30.sp)
-            Text(s.label, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+            Text(
+                s.label, style = MaterialTheme.typography.labelMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 2, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            )
         }
     }
 }

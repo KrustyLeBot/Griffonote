@@ -144,11 +144,7 @@ fun ActivitiesScreen(vm: MainViewModel) {
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SummaryCard("Semaine", week, Modifier.weight(1f))
-                    SummaryCard("Mois", month, Modifier.weight(1f))
-                    SummaryCard("Total", overall, Modifier.weight(1f))
-                }
+                SummaryTable(listOf("Semaine" to week, "Mois" to month, "Total" to overall))
             }
             item {
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -238,16 +234,35 @@ fun SportChips(selected: Sport, sports: List<Sport>, onSelect: (Sport) -> Unit) 
     }
 }
 
+/** One card, one row per figure: the columns stay aligned whatever the width of the phone. */
 @Composable
-private fun SummaryCard(title: String, t: Totals, modifier: Modifier) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = modifier) {
-        Column(Modifier.padding(10.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Text("${t.count} activité${if (t.count > 1) "s" else ""}", style = MaterialTheme.typography.bodySmall)
-            Text(Fmt.distance(t.distance), fontWeight = FontWeight.SemiBold)
-            Text(Fmt.duration(t.seconds), style = MaterialTheme.typography.bodySmall)
-            if (t.ascent > 0) Text("↑ ${t.ascent} m", style = MaterialTheme.typography.bodySmall)
-            if (t.hasSki) Text("⛷️ ${t.skiRuns} desc. · ${t.skiDrop} m", style = MaterialTheme.typography.bodySmall)
+private fun SummaryTable(columns: List<Pair<String, Totals>>) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            @Composable
+            fun line(style: androidx.compose.ui.text.TextStyle, weight: FontWeight?, color: androidx.compose.ui.graphics.Color?, cell: (Totals) -> String) {
+                Row(Modifier.fillMaxWidth()) {
+                    columns.forEach { (_, t) ->
+                        Text(
+                            cell(t), style = style, fontWeight = weight, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+                            color = color ?: androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                columns.forEach { (title, _) ->
+                    Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                }
+            }
+            line(MaterialTheme.typography.bodyMedium, FontWeight.SemiBold, null) { Fmt.distance(it.distance) }
+            line(MaterialTheme.typography.bodySmall, null, null) { Fmt.duration(it.seconds) }
+            line(MaterialTheme.typography.bodySmall, null, MaterialTheme.colorScheme.onSurfaceVariant) { "${it.count} act." }
+            if (columns.any { it.second.ascent > 0 }) line(MaterialTheme.typography.bodySmall, null, null) { if (it.ascent > 0) "↑ ${it.ascent} m" else "–" }
+            if (columns.any { it.second.hasSki }) {
+                line(MaterialTheme.typography.bodySmall, null, null) { if (it.hasSki) "⛷️ ${it.skiRuns} desc." else "–" }
+                line(MaterialTheme.typography.bodySmall, null, null) { if (it.hasSki) "↓ ${it.skiDrop} m" else "–" }
+            }
         }
     }
 }
