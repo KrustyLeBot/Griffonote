@@ -15,6 +15,7 @@ from ..core.store import Store, now_ms
 from ..services import updater
 from ..services.async_util import run_async
 from . import files, theme
+from .activities_view import ActivitiesScreen, summary_line
 from .editor_view import EditorScreen
 from .list_view import ListScreen
 from .settings_view import SettingsScreen
@@ -47,7 +48,8 @@ class MainWindow(QMainWindow):
         self.list_screen = ListScreen(config.grid)
         self.editor = EditorScreen()
         self.settings = SettingsScreen()
-        for page in (self.list_screen, self.editor, self.settings):
+        self.activities = ActivitiesScreen()
+        for page in (self.list_screen, self.editor, self.settings, self.activities):
             self.stack.addWidget(page)
         self.setCentralWidget(self.stack)
 
@@ -81,6 +83,12 @@ class MainWindow(QMainWindow):
         self.list_screen.reveal.connect(self.reveal_note)
         self.editor.message.connect(self.show_snack)
         self.editor.saved.connect(lambda _: self.refresh())
+        self.list_screen.open_activities.connect(self.show_activities)
+        self.activities.back_requested.connect(self.show_list)
+        self.activities.changed.connect(self.refresh)
+        self.activities.open_file.connect(self.open_attachment)
+        self.activities.reveal_file.connect(self.reveal_attachment)
+        self.activities.message.connect(self.show_snack)
         self.settings.back_requested.connect(self.show_list)
         self.settings.choose_folder.connect(self.choose_workdir)
         self.settings.grid_changed.connect(self._grid_changed)
@@ -125,6 +133,10 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.list_screen)
         self.setWindowTitle(f"Griffonote — {self.store.root}")
 
+    def show_activities(self) -> None:
+        self.activities.show_list()
+        self.stack.setCurrentWidget(self.activities)
+
     def show_settings(self) -> None:
         self.settings.load(str(self.store.root), self.list_screen.grid, self.config.theme)
         self.stack.setCurrentWidget(self.settings)
@@ -133,6 +145,11 @@ class MainWindow(QMainWindow):
         current = self.stack.currentWidget()
         if current is self.settings:
             self.show_list()
+        elif current is self.activities:
+            if self.activities.current is not None:
+                self.activities.show_list()
+            else:
+                self.show_list()
         elif current is self.list_screen and self.list_screen.search.text():
             self.list_screen.search.clear()
 
@@ -145,6 +162,7 @@ class MainWindow(QMainWindow):
     def set_store(self, store: Store) -> None:
         self.editor.close_note()
         self.store = store
+        self.activities.set_store(store)
         if self.watcher.directories():
             self.watcher.removePaths(self.watcher.directories())
         self._arm_watcher()
@@ -156,6 +174,9 @@ class MainWindow(QMainWindow):
         root = str(self.store.root)
         if root not in self.watcher.directories():
             self.watcher.addPath(root)
+        acts = str(self.store.root / "activities")
+        if (self.store.root / "activities").is_dir() and acts not in self.watcher.directories():
+            self.watcher.addPath(acts)
 
     def choose_workdir(self) -> None:
         path = ask_workdir(self, first_run=False, start=self.store.root)
@@ -168,6 +189,11 @@ class MainWindow(QMainWindow):
         self._snapshot = self.store.snapshot()
         self.notes = self.store.scan()
         self.list_screen.set_notes(self.notes)
+        acts = self.store.scan_activities()
+        self.activities.set_activities(acts)
+        latest = max((n for n in acts if n.activity), key=lambda n: n.activity.start, default=None)
+        self.list_screen.set_activity_summary(
+            f"Dernière : {latest.title} · {summary_line(latest.activity)}" if latest else "Aucune activité pour l'instant")
 
     def _poll_disk(self) -> None:
         snapshot = self.store.snapshot()
@@ -186,7 +212,7 @@ class MainWindow(QMainWindow):
     def _theme_changed(self, mode: str) -> None:
         self.config.theme = mode
         theme.apply_theme(QApplication.instance(), mode)
-        for screen in (self.list_screen, self.settings):
+        for screen in (self.list_screen, self.settings, self.activities):
             screen.restyle()
         self.list_screen.rebuild()
 

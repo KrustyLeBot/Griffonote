@@ -9,7 +9,8 @@ folder (`Documents/Griffonote/` by default), so notes can be read and edited on 
 ```
 Griffonote/
 ├── courses-k3f9a2.md      # one file per note: YAML frontmatter + Markdown body
-├── attachments/           # scanned PDFs (`pdf:`) and attached files (`attachments:`) of the notes
+├── attachments/           # scanned PDFs (`pdf:`), attached files (`attachments:`) and activity tracks
+├── activities/            # the "Activités" folder: one note per activity, kept out of the regular list
 └── drawings/
 ```
 
@@ -25,6 +26,35 @@ Griffonote/
 - Writes are atomic: `.<name>.synctmp-<uuid>` in the same folder, flushed to disk, then renamed over the file (Synchrotron never syncs that pattern).
 - The folder is the source of truth; the in-memory index is rebuilt on launch, on resume
   and when files change on disk.
+
+## Activities
+
+The pinned "Activités" entry of the notes list opens a separate folder (`activities/`): figures for the
+week, the month and overall, then the latest activities (walking, cycling, skiing, other with or without GPS).
+
+- An activity is a note whose frontmatter has `activity: {"sport": "ski", "start": <ms>, "elapsed": <s>, "moving": <s>,
+  "distance": <m>, "ascent": <m>, "descent": <m>, "hr": <bpm>, "vmax": <m/s>, "runs": <n>, "file": "attachments/….fit"}`:
+  what the list shows without opening the track. The track itself is one **FIT** (or **GPX**, for imports) file in
+  `attachments/`, listed in `attachments:` with the photos. Everything shown (map, figures, charts) is recomputed
+  from that file, so the analysis can improve without touching old activities.
+- Import: any FIT (Coros and other watches, Strava's "original file" export) or GPX file, one at a time, from the
+  "Importer FIT / GPX" button. Recording (Android only): GPS in a foreground service, a log written as it goes
+  (a crash loses nothing), turned into a FIT file when the activity ends. A time-only sport has no file; its
+  distance can be typed afterwards (treadmill).
+- Analysis (same algorithms in Kotlin and Python, tested on synthetic tracks): GPS jumps dropped; **stops** found
+  by position (nothing moved more than 8 m for 30 s, about 1 km/h), on top of the pauses made with the button, and
+  both left out of the moving time, the distance and the average pace; climb with a 3 m hysteresis on a smoothed
+  altitude; skiing is cut into **descents** (altitude falling and fast enough), the only part counted for the
+  skiing figures and drawn on the map. Without altitude in a file, descents fall back on speed.
+- Altitude when recording: the barometer gives the changes, the GPS keeps it honest (the gap between both is
+  followed with a 5 minute time constant). The consolidated altitude is the standard FIT field; the raw GPS
+  altitude and the pressure are kept as developer fields (`gps_altitude`, `pressure`).
+- GPS rate while recording: 5 s walking, 2 s cycling and skiing, 3 s other; "Économie de batterie" uses 12 s.
+- The map is OpenStreetMap raster tiles drawn by hand (no map library, no web engine), cached on disk (100 MB at
+  most, oldest purged) and fetched only online; offline only the track is drawn. Tiles are requested with an
+  identifying User-Agent, as the tile usage policy asks.
+- FIT is read and written with a small implementation of the public format (`Fit.kt`, `fit.py`), no SDK.
+- Tests use synthetic tracks only: this repository is public and a real track reveals where you live.
 
 ## Status
 

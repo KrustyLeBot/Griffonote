@@ -93,3 +93,37 @@ def test_attachments_are_copied_in_and_deleted_with_the_note(tmp_path):
     store.delete(note)
     assert not store.file_path(rel).exists()
     assert source.exists()
+
+
+def test_importing_a_fit_file_creates_an_activity_in_its_own_folder(tmp_path):
+    from pathlib import Path
+    from griffonote_win.core.store import Store
+    store = Store(tmp_path)
+    note = store.import_activity(Path(__file__).parent / "data" / "synthetic.fit", None, None)
+    assert note.path.startswith("activities/")
+    assert (tmp_path / note.path).is_file()
+    assert note.activity.file and (tmp_path / note.activity.file).is_file()
+    assert note.attachments == [note.activity.file]
+    assert note.activity.sport.key == "bike"
+    assert 225 < note.activity.distance < 250  # 90 s at 3 m/s minus the 10 s pause
+    # not in the regular list, but in the activities folder
+    assert store.scan() == []
+    assert [n.path for n in store.scan_activities()] == [note.path]
+    # the track can be read back and the note deleted with its file
+    assert len(store.read_track(note.activity).points) == 90
+    store.delete(note)
+    assert store.scan_activities() == []
+    assert not (tmp_path / note.activity.file).exists()
+
+
+def test_importing_a_gpx_file(tmp_path):
+    from griffonote_win.core.store import Store
+    gpx = tmp_path / "ride.gpx"
+    pts = "".join(f'<trkpt lat="{45 + i * 3 / 111320:.7f}" lon="6.0"><ele>{1000 + i}</ele><time>2024-01-01T10:{i // 60:02d}:{i % 60:02d}Z</time></trkpt>'
+                  for i in range(120))
+    gpx.write_text(f'<?xml version="1.0"?><gpx><trk><name>Sortie test</name><trkseg>{pts}</trkseg></trk></gpx>', encoding="utf-8")
+    store = Store(tmp_path / "notes")
+    note = store.import_activity(gpx, None, None)
+    assert note.title == "Sortie test"
+    assert note.activity.file.endswith(".gpx")
+    assert note.activity.ascent >= 100

@@ -252,3 +252,22 @@ def test_change_on_the_share_is_picked_up_without_a_watcher_event(window, tmp_pa
     window._poll_disk()
     assert not window.watch_timer.isActive()
     window.watcher.blockSignals(False)
+
+
+def test_activities_screen_lists_and_opens_an_activity(window, tmp_path, monkeypatch):
+    from pathlib import Path
+    from griffonote_win.ui import trackmap
+    monkeypatch.setattr(trackmap.TileCache, "get", lambda self, z, x, y: None)  # no network in tests
+    note = window.store.import_activity(Path(__file__).parent / "data" / "synthetic.fit", "Sortie vélo", None)
+    window.refresh()
+    assert "Sortie vélo" in window.list_screen.activities_button.text()
+    window.show_activities()
+    assert window.stack.currentWidget() is window.activities
+    assert len(window.activities.activities) == 1
+    window.activities.open_activity(window.activities.activities[0])
+    assert window.activities.current.path == note.path
+    assert window.list_screen.notes == []  # activities stay out of the regular list
+    window._escape()
+    assert window.activities.current is None
+    window._escape()
+    assert window.stack.currentWidget() is window.list_screen

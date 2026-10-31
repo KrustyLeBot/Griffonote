@@ -125,6 +125,7 @@ class ListScreen(QWidget):
     new_note = Signal(bool)  # checklist?
     open_settings = Signal()
     grid_toggled = Signal(bool)
+    open_activities = Signal()
 
     def __init__(self, grid: bool):
         super().__init__()
@@ -163,6 +164,13 @@ class ListScreen(QWidget):
         pill.addWidget(self.view_button)
         pill.addWidget(self.settings_button)
         root.addWidget(self.pill)
+
+        # the pinned "Activités" folder
+        self.activities_button = QPushButton()
+        self.activities_button.setObjectName("activities")
+        self.activities_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.activities_button.clicked.connect(self.open_activities)
+        root.addWidget(self.activities_button)
 
         # label filter chips
         self.chip_scroll = QScrollArea()
@@ -229,6 +237,14 @@ class ListScreen(QWidget):
         self.fab_list.setIcon(icons.icon("checklist", s.on_secondary_container, 22))
         self._sync_view_button()
 
+    def set_activity_summary(self, text: str) -> None:
+        s = theme.scheme()
+        self.activities_button.setText(f"🏅  Activités   {text}")
+        self.activities_button.setStyleSheet(
+            f"QPushButton#activities {{ background: {s.primary_container}; color: {s.on_primary_container}; border: none; "
+            f"border-radius: 16px; padding: 12px 16px; text-align: left; font-size: 10.5pt; }} "
+            f"QPushButton#activities:hover {{ background: {s.primary}; color: {s.on_primary}; }}")
+
     def _sync_view_button(self) -> None:
         s = theme.scheme()
         self.view_button.setIcon(icons.icon("agenda" if self.grid else "module", s.on_surface_variant, 22))
@@ -249,6 +265,7 @@ class ListScreen(QWidget):
 
     def _on_search(self, text: str) -> None:
         self.clear_button.setVisible(bool(text))
+        self.activities_button.setVisible(not text and not self.label)
         self.rebuild()
 
     def set_notes(self, notes: list[Note]) -> None:
@@ -277,6 +294,7 @@ class ListScreen(QWidget):
 
     def _pick_label(self, label: str) -> None:
         self.label = None if self.label == label else label
+        self.activities_button.setVisible(not self.search.text() and not self.label)
         for i in range(self.chip_row.count()):
             w = self.chip_row.itemAt(i).widget()
             if isinstance(w, QPushButton):
