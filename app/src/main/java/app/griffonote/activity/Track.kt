@@ -9,6 +9,7 @@ import kotlin.math.sqrt
 enum class Sport(val key: String, val label: String, val hasGps: Boolean) {
     WALK("walk", "Marche", true),
     BIKE("bike", "Vélo", true),
+    EBIKE("ebike", "Vélo électrique", true),
     SKI("ski", "Ski", true),
     GPS("gps", "Autre (GPS)", true),
     PLAIN("plain", "Autre (sans GPS)", false);
@@ -19,14 +20,19 @@ enum class Sport(val key: String, val label: String, val hasGps: Boolean) {
         /** FIT `sport` enum → ours. */
         fun fromFit(code: Int?): Sport = when (code) {
             1, 11, 17, 16 -> WALK // running, walking, hiking, mountaineering
-            2, 21 -> BIKE // cycling, e-biking
+            2 -> BIKE // cycling
+            21 -> EBIKE // e-biking
             12, 13, 14 -> SKI // cross-country, alpine, snowboarding
             else -> GPS
         }
 
+        /** The sport the file declares; "generic" (some watches) or none stays "Autre": the user picks. */
+        fun guess(fitCode: Int?): Sport = if (fitCode == null || fitCode == 0) GPS else fromFit(fitCode)
+
         fun toFit(sport: Sport): Int = when (sport) {
             WALK -> 11
             BIKE -> 2
+            EBIKE -> 21
             SKI -> 13
             else -> 0
         }

@@ -9,6 +9,7 @@ from enum import Enum
 class Sport(Enum):
     WALK = ("walk", "Marche", True)
     BIKE = ("bike", "Vélo", True)
+    EBIKE = ("ebike", "Vélo électrique", True)
     SKI = ("ski", "Ski", True)
     GPS = ("gps", "Autre (GPS)", True)
     PLAIN = ("plain", "Autre (sans GPS)", False)
@@ -26,11 +27,19 @@ class Sport(Enum):
     def from_fit(code: int | None) -> "Sport":
         if code in (1, 11, 17, 16):  # running, walking, hiking, mountaineering
             return Sport.WALK
-        if code in (2, 21):  # cycling, e-biking
+        if code == 2:  # cycling
             return Sport.BIKE
+        if code == 21:  # e-biking
+            return Sport.EBIKE
         if code in (12, 13, 14):  # cross-country, alpine, snowboarding
             return Sport.SKI
         return Sport.GPS
+
+
+    @staticmethod
+    def guess(fit_code: int | None) -> "Sport":
+        """The sport the file declares; "generic" (some watches) or none stays "Autre": the user picks."""
+        return Sport.GPS if fit_code in (None, 0) else Sport.from_fit(fit_code)
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from . import atomic
-from . import fit, gpx
+from . import elevation, fit, gpx
 from . import note as fmt
 from .activity import ActivityInfo
 from .analysis import analyze
@@ -168,39 +168,87 @@ class Store:
         if not info.file:
             raise OSError("Pas de tracé")
         data = self.file_path(info.file).read_bytes()
-        return fit.read(data) if fit.looks_like_fit(data) else gpx.read(data.decode("utf-8", "replace"))
+        track = fit.read(data) if fit.looks_like_fit(data) else gpx.read(data.decode("utf-8", "replace"))
+        if info.alt and elevation.missing(track):
+            try:
+                track = elevation.apply(track, elevation.parse(self.file_path(info.alt).read_text(encoding="utf-8")))
+            except OSError:
+                pass  # not synced yet: the activity opens without altitude
+        return track
 
-    def import_activity(self, source: Path, title: str | None, sport: Sport | None) -> Note:
-        """Reads a FIT or GPX file, copies it to attachments/ and creates the activity note."""
+    def find_activity(self, start: int | None) -> Note | None:
+        """The activity already imported from the same recording (same start time, to the second)."""
+        if start is None:
+            return None
+        return next((n for n in self.scan_activities() if n.activity and abs(n.activity.start - start) < 2000), None)
+
+    def read_source(self, source: Path) -> tuple[Track, str]:
         if source.stat().st_size > MAX_ATTACHMENT:
             raise OSError(f"{source.name} dépasse {MAX_ATTACHMENT // 1_000_000} Mo")
         data = source.read_bytes()
         if fit.looks_like_fit(data):
-            track, ext = fit.read(data), "fit"
-        else:
-            track, ext = gpx.read(data.decode("utf-8", "replace")), "gpx"
+            return fit.read(data), "fit"
+        return gpx.read(data.decode("utf-8", "replace")), "gpx"
+
+    def import_activity(self, source: Path, title: str | None, sport: Sport | None, replace: Note | None = None) -> Note:
+        """Reads a FIT or GPX file, copies it to attachments/ and creates the activity note.
+        With [replace], that activity keeps its name, description and photos and gets the new track."""
+        data = source.read_bytes()
+        track, ext = self.read_source(source)
         if not track.points and track.session_distance is None:
             raise fit.FitError("Aucune position dans ce fichier")
-        sport = sport or (Sport.from_fit(track.fit_sport) if ext == "fit" else Sport.WALK)
+        sport = sport or Sport.guess(track.fit_sport)
         start = track.start_time or now_ms()
-        title = (title or "").strip() or default_title(sport, start, track.name)
-        taken = {n.id for n in self.scan()} | {n.id for n in self.scan_activities()}
-        note_id = fmt.generate_id()
-        while note_id in taken:
+        if replace is not None:
+            note_id, base_title = replace.id, replace.title
+            title = (title or "").strip() or base_title
+        else:
+            title = (title or "").strip() or default_title(sport, start, track.name)
+            taken = {n.id for n in self.scan()} | {n.id for n in self.scan_activities()}
             note_id = fmt.generate_id()
+            while note_id in taken:
+                note_id = fmt.generate_id()
         relative = f"attachments/{fmt.slug(title)}-{note_id}.{ext}"
         atomic.write_bytes(self.file_path(relative), data)
         info = ActivityInfo.from_analysis(sport, analyze(track, sport), track, relative)
         now = now_ms()
-        return self.save(Note(path=f"{ACTIVITIES_DIR}/{fmt.file_name_for(title, note_id)}", id=note_id, title=title,
-                              created=now, updated=now, activity=info, attachments=[relative]))
+        if replace is None:
+            return self.save(Note(path=f"{ACTIVITIES_DIR}/{fmt.file_name_for(title, note_id)}", id=note_id, title=title,
+                                  created=now, updated=now, activity=info, attachments=[relative]))
+        # the old track and its altitude file go; photos and the description stay
+        old = [replace.activity.file, replace.activity.alt] if replace.activity else []
+        for path in old:
+            if path and path != relative:
+                try:
+                    self.file_path(path).unlink()
+                except OSError:
+                    pass
+        kept = [a for a in replace.attachments if a not in old]
+        return self.save(replace.copy(title=title, activity=info, attachments=[relative] + kept, updated=now))
+
+    def fetch_altitude(self, note: Note, progress=lambda n, total: None) -> Note:
+        """Looks the altitude up in the terrain model (positions are sent to opentopodata.org)."""
+        info = note.activity
+        if info is None or not info.file:
+            raise OSError("Pas de tracé")
+        track = self.read_track(ActivityInfo(**{**info.__dict__, "alt": None}))
+        if not elevation.missing(track):
+            raise elevation.ElevationError("Ce fichier a déjà une altitude")
+        from .analysis import clean
+        alts = elevation.query(elevation.pick(clean(track)), progress=progress)
+        relative = (info.file.rsplit(".", 1)[0]) + ".alt"
+        atomic.write_text(self.file_path(relative), elevation.encode(alts))
+        filled = elevation.apply(track, alts)
+        new_info = ActivityInfo.from_analysis(info.sport, analyze(filled, info.sport), filled, info.file, relative)
+        attachments = note.attachments if relative in note.attachments else note.attachments + [relative]
+        return self.save(note.copy(activity=new_info, attachments=attachments, updated=now_ms()))
 
     def update_activity(self, note: Note, title: str, description: str, sport: Sport) -> Note:
         info = note.activity
         if info is not None and info.sport != sport:
             if info.file:
                 track = self.read_track(info)
-                info = ActivityInfo.from_analysis(sport, analyze(track, sport), track, info.file)
+                info = ActivityInfo.from_analysis(sport, analyze(track, sport), track, info.file, info.alt)
             else:
                 info = ActivityInfo(**{**info.__dict__, "sport": sport})
         return self.save(note.copy(title=title.strip() or note.title, body=description.strip(), activity=info, updated=now_ms()))

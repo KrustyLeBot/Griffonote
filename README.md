@@ -30,7 +30,7 @@ Griffonote/
 ## Activities
 
 The pinned "Activités" entry of the notes list opens a separate folder (`activities/`): figures for the
-week, the month and overall, then the latest activities (walking, cycling, skiing, other with or without GPS).
+week, the month and overall, then the latest activities (walking, cycling, electric bike, skiing, other with or without GPS).
 
 - An activity is a note whose frontmatter has `activity: {"sport": "ski", "start": <ms>, "elapsed": <s>, "moving": <s>,
   "distance": <m>, "ascent": <m>, "descent": <m>, "hr": <bpm>, "vmax": <m/s>, "runs": <n>, "file": "attachments/….fit"}`:
@@ -46,6 +46,15 @@ week, the month and overall, then the latest activities (walking, cycling, skiin
   both left out of the moving time, the distance and the average pace; climb with a 3 m hysteresis on a smoothed
   altitude; skiing is cut into **descents** (altitude falling and fast enough), the only part counted for the
   skiing figures and drawn on the map. Without altitude in a file, descents fall back on speed.
+- Importing a recording already imported (same start time) offers to replace it: the name, description and photos
+  stay, the track and the figures are redone. A watch that writes the sport as "generic" gives "Autre"; the sport
+  is picked in the import dialog.
+- Some watches (Kiprun/Coros for instance) record positions only. For such a file the import dialog (or the
+  "Altitude" card of the activity) offers to look the altitude up in the SRTM 30 m terrain model through the public
+  OpenTopoData service: the positions, about one per 30 m, are sent to opentopodata.org, only when asked, and the
+  result is kept in `attachments/<name>.alt` (`time ms,altitude` lines; `alt` in the activity frontmatter). The
+  FIT/GPX file itself is never modified. Without altitude, skiing descents fall back on speed, which also picks up
+  gondolas.
 - Altitude when recording: the barometer gives the changes, the GPS keeps it honest (the gap between both is
   followed with a 5 minute time constant). The consolidated altitude is the standard FIT field; the raw GPS
   altitude and the pressure are kept as developer fields (`gps_altitude`, `pressure`).

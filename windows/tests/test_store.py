@@ -128,3 +128,25 @@ def test_importing_a_gpx_file(tmp_path):
     assert note.title == "Sortie test"
     assert note.activity.file.endswith(".gpx")
     assert note.activity.ascent >= 100
+
+
+def test_reimporting_the_same_recording_replaces_the_activity_and_keeps_the_photos(tmp_path):
+    from pathlib import Path
+    from griffonote_win.core.store import Store
+    from griffonote_win.core.track import Sport
+    store = Store(tmp_path)
+    source = Path(__file__).parent / "data" / "synthetic.fit"
+    first = store.import_activity(source, "Sortie du matin", Sport.GPS)
+    photo = tmp_path / "photo.jpg"
+    photo.write_bytes(b"\xff\xd8\xff")
+    relative = store.add_attachment(photo)
+    first = store.save(first.copy(attachments=first.attachments + [relative], body="Belle sortie"))
+    found = store.find_activity(store.read_source(source)[0].start_time)
+    assert found is not None and found.id == first.id
+    again = store.import_activity(source, None, Sport.EBIKE, replace=found)
+    assert again.id == first.id and again.path == first.path
+    assert again.title == "Sortie du matin" and again.body == "Belle sortie"
+    assert again.activity.sport == Sport.EBIKE
+    assert relative in again.attachments and again.activity.file in again.attachments
+    assert len(store.scan_activities()) == 1
+    assert not (tmp_path / first.activity.file).exists() or first.activity.file == again.activity.file

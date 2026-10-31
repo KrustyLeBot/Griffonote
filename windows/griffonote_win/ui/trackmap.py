@@ -163,13 +163,14 @@ class TrackMap(QWidget):
                 right = math.floor(w / 2 + (tx + 1 - cx) * tile_px)
                 bottom = math.floor(h / 2 + (ty + 1 - cy) * tile_px)
                 painter.drawPixmap(left, top, right - left, bottom - top, pixmap)
+        painter.fillRect(self.rect(), QColor(255, 255, 255, 70))  # calms the map so the track stands out
         for points, color in self.lines:
             if len(points) < 2:
                 continue
             polygon = QPolygonF([self._project(la, lo, tz) for la, lo in points])
-            painter.setPen(QPen(QColor("white"), 7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setPen(QPen(QColor(0, 0, 0, 150), 9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             painter.drawPolyline(polygon)
-            painter.setPen(QPen(color, 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            painter.setPen(QPen(color, 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             painter.drawPolyline(polygon)
         for lat, lon, color in self.dots:
             p = self._project(lat, lon, tz)

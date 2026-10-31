@@ -107,8 +107,13 @@ fun ActivitiesScreen(vm: MainViewModel) {
                     }
                 }
             }
-            if (vm.activities.busy) {
-                item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() } }
+            if (vm.activities.busy || vm.activities.reliefProgress != null) {
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator()
+                        vm.activities.reliefProgress?.let { Text("  $it") }
+                    }
+                }
             }
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -141,20 +146,33 @@ fun ActivitiesScreen(vm: MainViewModel) {
     vm.activities.pending?.let { p ->
         var title by remember(p) { mutableStateOf(p.title) }
         var sport by remember(p) { mutableStateOf(p.sport) }
+        var relief by remember(p) { mutableStateOf(true) }
         AlertDialog(
             onDismissRequest = { vm.activities.cancelImport() },
             title = { Text("Importer l'activité") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(title, { title = it }, label = { Text("Nom") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    SportChips(sport, listOf(Sport.WALK, Sport.BIKE, Sport.SKI, Sport.GPS)) { sport = it }
+                    SportChips(sport, listOf(Sport.WALK, Sport.BIKE, Sport.EBIKE, Sport.SKI, Sport.GPS)) { sport = it }
+                    if (p.existing != null) {
+                        Text(
+                            "Déjà importée : « ${p.existing.title} ». Elle sera remplacée (nom, description et photos conservés).",
+                            color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (p.needsAltitude) {
+                        Row(Modifier.clickable { relief = !relief }, verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Checkbox(relief, { relief = it })
+                            Text("Compléter l'altitude avec le relief (envoie les positions à opentopodata.org)", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     Text(
                         "${p.track.points.size} points" + (p.track.hrAvg?.let { " · FC moyenne $it" } ?: ""),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = { vm.activities.confirmImport(title, sport) }) { Text("Importer") } },
+            confirmButton = { TextButton(onClick = { vm.activities.confirmImport(title, sport, relief) }) { Text(if (p.existing != null) "Remplacer" else "Importer") } },
             dismissButton = { TextButton(onClick = { vm.activities.cancelImport() }) { Text("Annuler") } },
         )
     }

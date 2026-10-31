@@ -31,6 +31,7 @@ import java.util.Locale
 fun sportEmoji(s: Sport) = when (s) {
     Sport.WALK -> "🚶"
     Sport.BIKE -> "🚴"
+    Sport.EBIKE -> "⚡"
     Sport.SKI -> "⛷️"
     Sport.GPS -> "📍"
     Sport.PLAIN -> "⏱️"
@@ -126,8 +127,12 @@ fun thin(n: Int, max: Int = 300): IntArray {
     return IntArray(max) { (it.toLong() * (n - 1) / (max - 1)).toInt() }
 }
 
-private val Slow = Color(0xFF2E7DF6)
-private val Fast = Color(0xFFE5484D)
+// slow to fast: violet, magenta, red-orange (stands out on the pale map)
+private val Slow = Color(0xFF6A00F4)
+private val Mid = Color(0xFFE500A4)
+private val Fast = Color(0xFFFF3D00)
+
+private fun speedColor(f: Float): Color = if (f < 0.5f) lerp(Slow, Mid, f * 2) else lerp(Mid, Fast, (f - 0.5f) * 2)
 
 /**
  * The analysis as map lines: chunks coloured from blue (slow) to red (fast). For skiing only the
@@ -155,7 +160,7 @@ fun mapLines(a: Analysis, ski: Boolean, showAll: Boolean): List<MapLine> {
         val avg = speedSum / (j - from)
         val color = when {
             ski && showAll && !s[from].down -> Color(0xFF9AA0A6)
-            else -> lerp(Slow, Fast, (avg / top).toFloat().coerceIn(0f, 1f))
+            else -> speedColor((avg / top).toFloat().coerceIn(0f, 1f))
         }
         out.add(MapLine(DoubleArray(j - from + 1) { s[from + it].lat }, DoubleArray(j - from + 1) { s[from + it].lon }, color))
         i = j

@@ -89,10 +89,10 @@ fun RecordScreen(vm: MainViewModel) {
                 Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("Quelle activité ?", style = MaterialTheme.typography.titleMedium)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(Sport.WALK, Sport.BIKE, Sport.SKI).forEach { s -> SportButton(s, sport == s, Modifier.weight(1f)) { sport = s } }
+                        listOf(Sport.WALK, Sport.BIKE, Sport.EBIKE).forEach { s -> SportButton(s, sport == s, Modifier.weight(1f)) { sport = s } }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(Sport.GPS, Sport.PLAIN).forEach { s -> SportButton(s, sport == s, Modifier.weight(1f)) { sport = s } }
+                        listOf(Sport.SKI, Sport.GPS, Sport.PLAIN).forEach { s -> SportButton(s, sport == s, Modifier.weight(1f)) { sport = s } }
                     }
                     if (sport.hasGps) {
                         Text("Précision du GPS", style = MaterialTheme.typography.titleSmall)

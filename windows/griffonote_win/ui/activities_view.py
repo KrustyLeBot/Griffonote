@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
                                QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -18,8 +18,19 @@ from ..core.track import Sport
 from . import icons, theme
 from .trackmap import TrackMap
 
-EMOJI = {Sport.WALK: "🚶", Sport.BIKE: "🚴", Sport.SKI: "⛷️", Sport.GPS: "📍", Sport.PLAIN: "⏱️"}
-SLOW, FAST = QColor("#2E7DF6"), QColor("#E5484D")
+EMOJI = {Sport.WALK: "🚶", Sport.BIKE: "🚴", Sport.EBIKE: "⚡", Sport.SKI: "⛷️", Sport.GPS: "📍", Sport.PLAIN: "⏱️"}
+GPS_SPORTS = (Sport.WALK, Sport.BIKE, Sport.EBIKE, Sport.SKI, Sport.GPS)
+# slow to fast: violet, magenta, red-orange (stands out on the pale map)
+STOPS = [(0.0, (106, 0, 244)), (0.5, (229, 0, 164)), (1.0, (255, 61, 0))]
+
+
+def speed_color(f: float) -> QColor:
+    f = max(0.0, min(1.0, f))
+    for (a, ca), (b, cb) in zip(STOPS, STOPS[1:]):
+        if f <= b:
+            t = (f - a) / (b - a)
+            return QColor(*(round(x + (y - x) * t) for x, y in zip(ca, cb)))
+    return QColor(*STOPS[-1][1])
 DAYS = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."]
 MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."]
 
@@ -75,9 +86,7 @@ def map_lines(a: Analysis, ski: bool, show_all: bool):
         if ski and show_all and not s[first].down:
             color = QColor("#9AA0A6")
         else:
-            f = max(0.0, min(1.0, total / (j - first) / top))
-            color = QColor(int(SLOW.red() + (FAST.red() - SLOW.red()) * f), int(SLOW.green() + (FAST.green() - SLOW.green()) * f),
-                           int(SLOW.blue() + (FAST.blue() - SLOW.blue()) * f))
+            color = speed_color(total / (j - first) / top)
         out.append(([(p.lat, p.lon) for p in s[first:j + 1]], color))
         i = j
     return out
@@ -181,19 +190,29 @@ def stat_grid(items: list[tuple[str, str]], columns: int = 3) -> QWidget:
 
 
 class ImportDialog(QDialog):
-    def __init__(self, parent, name: str, title: str, sport: Sport):
+    def __init__(self, parent, name: str, title: str, sport: Sport, existing: Note | None, needs_altitude: bool):
         super().__init__(parent)
         self.setWindowTitle("Importer l'activité")
         form = QFormLayout(self)
         form.addRow(QLabel(name))
+        if existing is not None:
+            warn = QLabel(f"Déjà importée : « {existing.title} ». Elle sera remplacée (nom, description et photos conservés).")
+            warn.setWordWrap(True)
+            warn.setStyleSheet("color: #E5A100; font-weight: 600;")
+            form.addRow(warn)
         self.title = QLineEdit(title)
         self.sport = QComboBox()
-        for s in (Sport.WALK, Sport.BIKE, Sport.SKI, Sport.GPS):
+        for s in GPS_SPORTS:
             self.sport.addItem(f"{EMOJI[s]} {short_label(s)}", s)
         self.sport.setCurrentIndex(max(0, self.sport.findData(sport)))
         form.addRow("Nom", self.title)
         form.addRow("Sport", self.sport)
+        self.relief = QCheckBox("Compléter l'altitude avec le relief (envoie les positions à opentopodata.org)")
+        self.relief.setChecked(True)
+        self.relief.setVisible(needs_altitude)
+        form.addRow(self.relief)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Remplacer" if existing is not None else "Importer")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -208,7 +227,7 @@ class EditDialog(QDialog):
         self.title = QLineEdit(note.title)
         self.description = QPlainTextEdit(note.body)
         self.sport = QComboBox()
-        options = (Sport.WALK, Sport.BIKE, Sport.SKI, Sport.GPS) if has_file else (Sport.PLAIN,)
+        options = GPS_SPORTS if has_file else (Sport.PLAIN,)
         for s in options:
             self.sport.addItem(f"{EMOJI[s]} {s.label}", s)
         if note.activity:
@@ -375,20 +394,39 @@ class ActivitiesScreen(QWidget):
         last = None
         for path in paths:
             try:
-                from ..core import fit, gpx
+                from ..core import elevation
                 from ..core.store import default_title
-                data = Path(path).read_bytes()
-                track = fit.read(data) if fit.looks_like_fit(data) else gpx.read(data.decode("utf-8", "replace"))
-                sport = Sport.from_fit(track.fit_sport) if fit.looks_like_fit(data) else Sport.WALK
-                dialog = ImportDialog(self, Path(path).name, default_title(sport, track.start_time or 0, track.name), sport)
+                source = Path(path)
+                track, _ext = self.store.read_source(source)
+                existing = self.store.find_activity(track.start_time)
+                sport = Sport.guess(track.fit_sport)
+                if existing is not None and sport == Sport.GPS and existing.activity:
+                    sport = existing.activity.sport
+                title = existing.title if existing else default_title(sport, track.start_time or 0, track.name)
+                dialog = ImportDialog(self, source.name, title, sport, existing, elevation.missing(track))
                 if dialog.exec() != QDialog.DialogCode.Accepted:
                     continue
-                last = self.store.import_activity(Path(path), dialog.title.text(), dialog.sport.currentData())
+                last = self.store.import_activity(source, dialog.title.text(), dialog.sport.currentData(), existing)
+                if dialog.relief.isVisible() and dialog.relief.isChecked():
+                    last = self._fetch_altitude(last, quiet=False)
             except Exception as error:  # noqa: BLE001 — the message goes to the user
                 QMessageBox.warning(self, "Import impossible", f"{Path(path).name} : {error}")
         if last is not None:
             self.changed.emit()
             self.open_activity(last)
+
+    def _fetch_altitude(self, note: Note, quiet: bool = True) -> Note:
+        """Looks the altitude up (a few seconds: the service allows one request per second)."""
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            return self.store.fetch_altitude(note)
+        except Exception as error:  # noqa: BLE001
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Altitude indisponible", f"{error}\nL'activité est importée sans altitude.")
+            return note
+        finally:
+            while QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
 
     # ---- detail ----
 
@@ -462,14 +500,14 @@ class ActivitiesScreen(QWidget):
             if lines:
                 tmap = TrackMap()
                 samples = analysis.samples
-                tmap.set_data(lines, [(samples[0].lat, samples[0].lon, QColor("#2E9E5B")), (samples[-1].lat, samples[-1].lon, QColor("#E5484D"))])
+                tmap.set_data(lines, [(samples[0].lat, samples[0].lon, QColor("#00C853")), (samples[-1].lat, samples[-1].lon, QColor("#FF1744"))])
                 col.addWidget(tmap)
                 if ski:
                     toggle = QPushButton("Afficher tout le tracé")
                     toggle.setCheckable(True)
 
                     def switch(checked: bool, m=tmap, a=analysis, sm=samples) -> None:
-                        m.set_data(map_lines(a, True, checked), [(sm[0].lat, sm[0].lon, QColor("#2E9E5B")), (sm[-1].lat, sm[-1].lon, QColor("#E5484D"))])
+                        m.set_data(map_lines(a, True, checked), [(sm[0].lat, sm[0].lon, QColor("#00C853")), (sm[-1].lat, sm[-1].lon, QColor("#FF1744"))])
                     toggle.toggled.connect(switch)
                     col.addWidget(toggle)
 
@@ -564,12 +602,18 @@ class ActivitiesScreen(QWidget):
             distance.clicked.connect(lambda: self._set_distance(note))
             col.addWidget(distance)
 
+        if analysis is not None and not analysis.quality.has_altitude and info.sport.has_gps and not info.alt:
+            relief = QPushButton("Compléter l'altitude avec le relief (en ligne)")
+            relief.setToolTip("Envoie les positions à opentopodata.org et garde le résultat dans un petit fichier .alt")
+            relief.clicked.connect(lambda: self._reopen(self._fetch_altitude(note)))
+            col.addWidget(relief)
+
         if analysis is not None:
             q = analysis.quality
             frame, lay = card("Qualité des données")
             text = QLabel(f"{q.points} points" + (f" ({q.dropped} écartés)" if q.dropped else "")
                           + f" · un point toutes les {round(q.median_interval_sec)} s\n"
-                          + f"Altitude : {'oui' if q.has_altitude else 'absente du fichier'}"
+                          + "Altitude : " + (("calculée d'après le relief" if info.alt else "oui") if q.has_altitude else "absente du fichier")
                           + f" · Fréquence cardiaque : {'oui' if q.has_hr else 'non'}")
             text.setStyleSheet(f"color: {s.on_surface_variant}; font-size: 9pt;")
             lay.addWidget(text)

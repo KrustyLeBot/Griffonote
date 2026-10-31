@@ -79,7 +79,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
     val lines = remember(analysis, showAll) { analysis?.let { mapLines(it, ski, showAll) }.orEmpty() }
     val dots = remember(analysis) {
         val s = analysis?.samples.orEmpty()
-        if (s.size < 2) emptyList() else listOf(MapDot(s.first().lat, s.first().lon, Color(0xFF2E9E5B)), MapDot(s.last().lat, s.last().lon, Color(0xFFE5484D)))
+        if (s.size < 2) emptyList() else listOf(MapDot(s.first().lat, s.first().lon, Color(0xFF00C853)), MapDot(s.last().lat, s.last().lon, Color(0xFFFF1744)))
     }
 
     if (fullMap && analysis != null) {
@@ -220,9 +220,19 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                     if (hrIdx.size >= 2) {
                         ProfileChart(
                             "Fréquence cardiaque", DoubleArray(hrIdx.size) { analysis.samples[hrIdx[it]].dist }, DoubleArray(hrIdx.size) { analysis.samples[hrIdx[it]].hr!!.toDouble() },
-                            "${analysis.samples.mapNotNull { it.hr }.minOrNull() ?: 0} bpm", "${analysis.stats.hrMax ?: 0} bpm", Color(0xFFE5484D),
+                            "${analysis.samples.mapNotNull { it.hr }.minOrNull() ?: 0} bpm", "${analysis.stats.hrMax ?: 0} bpm", Color(0xFFFF1744),
                         )
                     }
+                }
+            }
+
+            if (analysis != null && !analysis.quality.hasAltitude && info?.sport?.hasGps == true && info.alt == null) {
+                Section("Altitude") {
+                    Text("Ce fichier n'a pas d'altitude : le dénivelé et les descentes de ski sont approximatifs.", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { vm.activities.fetchAltitude(note) }, enabled = vm.activities.reliefProgress == null) {
+                        Text(vm.activities.reliefProgress ?: "Compléter avec le relief (en ligne)")
+                    }
+                    Text("Les positions sont envoyées à opentopodata.org ; le résultat est gardé dans un petit fichier .alt.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
@@ -245,7 +255,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                     Text(
                         "${q.points} points" + (if (q.dropped > 0) " (${q.dropped} écartés)" else "") +
                             " · un point toutes les ${Math.round(q.medianIntervalSec)} s\n" +
-                            "Altitude : " + (if (q.hasAltitude) "oui" else "absente du fichier") +
+                            "Altitude : " + (if (q.hasAltitude) (if (info?.alt != null) "calculée d'après le relief" else "oui") else "absente du fichier") +
                             " · Fréquence cardiaque : " + (if (q.hasHr) "oui" else "non"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -266,7 +276,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(title, { title = it }, label = { Text("Nom") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(description, { description = it }, label = { Text("Description") }, minLines = 2, modifier = Modifier.fillMaxWidth())
-                    SportChips(sport, if (info.file != null) listOf(Sport.WALK, Sport.BIKE, Sport.SKI, Sport.GPS) else listOf(Sport.PLAIN)) { sport = it }
+                    SportChips(sport, if (info.file != null) listOf(Sport.WALK, Sport.BIKE, Sport.EBIKE, Sport.SKI, Sport.GPS) else listOf(Sport.PLAIN)) { sport = it }
                 }
             },
             confirmButton = { TextButton(onClick = { editing = false; vm.activities.update(note, title, description, sport) }) { Text("Enregistrer") } },

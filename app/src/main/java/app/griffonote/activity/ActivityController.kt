@@ -14,12 +14,19 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /** A file read from the picker, waiting for the user to confirm its name and sport. */
-class PendingImport(val bytes: ByteArray, val extension: String, val track: Track, val sport: Sport, val title: String)
+class PendingImport(
+    val bytes: ByteArray, val extension: String, val track: Track, val sport: Sport, val title: String,
+    /** The same recording was imported before: confirming replaces it (name, description and photos are kept). */
+    val existing: Note? = null,
+    /** The file has no altitude: offer to look it up in the terrain model. */
+    val needsAltitude: Boolean = false,
+)
 
 /** An opened activity: its note and what the track file says. */
 class ActivityDetail(val note: Note, val track: Track?, val analysis: Analysis?, val error: String? = null) {
@@ -69,8 +76,13 @@ class ActivityController(
                         track = Gpx.read(text); ext = "gpx"
                     }
                     if (track.points.isEmpty() && track.sessionDistance == null) throw Fit.FitException("Aucune position dans ce fichier")
-                    val sport = if (ext == "fit") Sport.fromFit(track.fitSport) else Sport.WALK
-                    PendingImport(bytes, ext, track, sport, defaultTitle(sport, track.startTime ?: System.currentTimeMillis(), track.name))
+                    val existing = track.startTime?.let { st ->
+                        repo.activities.value.firstOrNull { n -> n.activity?.let { abs(it.start - st) < 2000 } == true }
+                    }
+                    var sport = Sport.guess(track.fitSport)
+                    if (existing != null && sport == Sport.GPS) sport = existing.activity?.sport ?: sport
+                    val title = existing?.title ?: defaultTitle(sport, track.startTime ?: System.currentTimeMillis(), track.name)
+                    PendingImport(bytes, ext, track, sport, title, existing, Elevation.missing(track) && sport.hasGps)
                 }
                 pending = p
             } catch (e: Exception) {
@@ -83,13 +95,14 @@ class ActivityController(
 
     fun cancelImport() { pending = null }
 
-    fun confirmImport(title: String, sport: Sport) {
+    fun confirmImport(title: String, sport: Sport, useRelief: Boolean) {
         val p = pending ?: return
         pending = null
         busy = true
         scope.launch {
             try {
-                val note = withContext(io) { saveNew(p.track, sport, title.trim().ifEmpty { p.title }, p.bytes, p.extension) }
+                var note = withContext(io) { saveNew(p.track, sport, title.trim().ifEmpty { p.title }, p.bytes, p.extension, p.existing) }
+                if (useRelief && p.needsAltitude) note = lookUpAltitude(note, quiet = false)
                 open(note)
             } catch (e: Exception) {
                 say(Snack("Import impossible : ${e.message}"))
@@ -100,15 +113,21 @@ class ActivityController(
     }
 
     /** Writes the track file and the note. Blocking: call from the IO dispatcher. */
-    fun saveNew(track: Track, sport: Sport, title: String, bytes: ByteArray, extension: String): Note {
+    fun saveNew(track: Track, sport: Sport, title: String, bytes: ByteArray, extension: String, replace: Note? = null): Note {
         val a = Analyzer.analyze(track, sport)
         val now = System.currentTimeMillis()
         val ids = (repo.notes.value + repo.activities.value).map { it.id }.toSet()
-        var id = NoteFormat.generateId()
-        while (id in ids) id = NoteFormat.generateId()
+        var id = replace?.id ?: NoteFormat.generateId()
+        if (replace == null) while (id in ids) id = NoteFormat.generateId()
         val file = "attachments/" + NoteFormat.slug(title) + "-$id.$extension"
         repo.fs.writeBytes(file, bytes)
         val info = ActivityInfo.from(sport, a, track, file)
+        if (replace != null) {
+            // the old track and its altitude file go; photos and the description stay
+            val old = listOfNotNull(replace.activity?.file, replace.activity?.alt)
+            old.filter { it != file }.forEach { repo.fs.delete(it) }
+            return repo.save(replace.copy(title = title, activity = info, attachments = listOf(file) + replace.attachments.filter { it !in old }, updated = now))
+        }
         return repo.save(
             Note(
                 path = NoteRepository.ACTIVITIES_DIR + "/" + NoteFormat.fileNameFor(title, id), id = id, title = title,
@@ -174,6 +193,60 @@ class ActivityController(
         }
     }
 
+    // ---- altitude from the terrain model ----
+
+    /** Says what the lookup is doing ("Relief 3/12…"), null when idle. */
+    var reliefProgress by mutableStateOf<String?>(null)
+        private set
+
+    /** Looks the altitude of a track without one up online (positions go to opentopodata.org). */
+    fun fetchAltitude(note: Note) {
+        scope.launch {
+            val saved = lookUpAltitude(note, quiet = false)
+            open(saved)
+        }
+    }
+
+    private suspend fun lookUpAltitude(note: Note, quiet: Boolean): Note {
+        val info = note.activity ?: return note
+        val file = info.file ?: return note
+        reliefProgress = "Relief…"
+        return try {
+            withContext(io) {
+                val bytes = repo.fs.readBytes(file) ?: throw java.io.IOException("Fichier introuvable")
+                val track = if (Fit.looksLikeFit(bytes)) Fit.read(bytes) else Gpx.read(String(bytes, Charsets.UTF_8))
+                if (!Elevation.missing(track)) throw Elevation.ElevationException("Ce fichier a déjà une altitude")
+                val alts = Elevation.query(
+                    Elevation.pick(Analyzer.clean(track)), get = ::httpGet, pause = { Thread.sleep(1100) },
+                    progress = { n, total -> reliefProgress = "Relief ${n + 1}/$total…" },
+                )
+                val sidecar = file.substringBeforeLast('.') + ".alt"
+                repo.fs.writeText(sidecar, Elevation.encode(alts))
+                val filled = Elevation.apply(track, alts)
+                val newInfo = ActivityInfo.from(info.sport, Analyzer.analyze(filled, info.sport), filled, file, sidecar)
+                repo.save(note.copy(activity = newInfo, attachments = if (sidecar in note.attachments) note.attachments else note.attachments + sidecar, updated = System.currentTimeMillis()))
+            }
+        } catch (e: Exception) {
+            say(Snack("Altitude indisponible : ${e.message}"))
+            note
+        } finally {
+            reliefProgress = null
+        }
+    }
+
+    private fun httpGet(url: String): String {
+        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 15000
+        c.readTimeout = 30000
+        c.setRequestProperty("User-Agent", "Griffonote (https://github.com/KrustyLeBot/Griffonote)")
+        try {
+            if (c.responseCode != 200) throw Elevation.ElevationException("Service d'altitude : HTTP ${c.responseCode} (limite atteinte ?)")
+            return c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) }
+        } finally {
+            c.disconnect()
+        }
+    }
+
     // ---- open / edit / delete ----
 
     fun open(note: Note) {
@@ -185,7 +258,10 @@ class ActivityController(
             val loaded = withContext(io) {
                 try {
                     val bytes = repo.fs.readBytes(file) ?: throw java.io.IOException("Fichier introuvable (pas encore synchronisé ?)")
-                    val track = if (Fit.looksLikeFit(bytes)) Fit.read(bytes) else Gpx.read(String(bytes, Charsets.UTF_8))
+                    var track = if (Fit.looksLikeFit(bytes)) Fit.read(bytes) else Gpx.read(String(bytes, Charsets.UTF_8))
+                    info.alt?.let { alt ->
+                        if (Elevation.missing(track)) repo.fs.readText(alt)?.let { track = Elevation.apply(track, Elevation.parse(it)) }
+                    }
                     ActivityDetail(note, track, Analyzer.analyze(track, info.sport))
                 } catch (e: Exception) {
                     ActivityDetail(note, null, null, e.message ?: "Lecture impossible")
@@ -205,7 +281,7 @@ class ActivityController(
                 val current = detail?.takeIf { it.note.path == note.path }
                 if (info != null && info.sport != sport) {
                     val track = current?.track
-                    info = if (track != null) ActivityInfo.from(sport, Analyzer.analyze(track, sport), track, info.file) else info.copy(sport = sport)
+                    info = if (track != null) ActivityInfo.from(sport, Analyzer.analyze(track, sport), track, info.file, info.alt) else info.copy(sport = sport)
                 }
                 repo.save(note.copy(title = title.trim().ifEmpty { note.title }, body = description.trim(), activity = info, updated = System.currentTimeMillis()))
             }

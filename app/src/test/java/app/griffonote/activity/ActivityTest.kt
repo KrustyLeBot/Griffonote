@@ -299,3 +299,48 @@ class RecordingLogTest {
         assertEquals(10.0, c.ascent, 0.001)
     }
 }
+
+class SportAndElevationTest {
+    @Test
+    fun aGenericSportStaysOther() {
+        assertEquals(Sport.GPS, Sport.guess(0))
+        assertEquals(Sport.GPS, Sport.guess(null))
+        assertEquals(Sport.EBIKE, Sport.guess(21))
+        assertEquals(Sport.SKI, Sport.guess(13))
+        assertEquals(Sport.EBIKE, Sport.fromFit(21))
+        assertEquals(21, Sport.toFit(Sport.EBIKE))
+    }
+
+    @Test
+    fun terrainElevationMakesSkiRunsDetectableWithoutAltitude() {
+        // 100 m drop on a 10 % slope going north, then a slow lift back up
+        val down = leg(null, 120, 12.0).map { it.copy(alt = null) }
+        val lift = leg(down.last().copy(alt = 0.0), 300, 2.0).map { it.copy(alt = null) }
+        val track = Track(down + lift)
+        assertTrue(Elevation.missing(track))
+        val fake = { url: String ->
+            val coords = url.substringAfter("locations=").split("|").map { it.split(",")[0].toDouble() }
+            // altitude as a function of latitude: 2000 m at the start, down 10 % over the first 1440 m, then back up
+            val lat0 = 45.0
+            val turn = lat0 + 1440.0 / M_PER_DEG
+            val alts = coords.map { lat -> if (lat <= turn) 2000 - (lat - lat0) * M_PER_DEG * 0.1 else 2000 - 144 + (lat - turn) * M_PER_DEG * 0.25 }
+            "{\"results\": [" + alts.joinToString(",") { "{\"elevation\": %.1f, \"location\": {}}".format(java.util.Locale.ROOT, it) } + "], \"status\": \"OK\"}"
+        }
+        val samples = Elevation.pick(Analyzer.clean(track))
+        assertTrue(samples.size < track.points.size / 4)
+        val alts = Elevation.query(samples, fake, {})
+        val filled = Elevation.apply(track, Elevation.parse(Elevation.encode(alts)))
+        assertTrue(filled.points.all { it.alt != null })
+        val res = Analyzer.analyze(filled, Sport.SKI)
+        assertEquals(1, res.stats.runs)
+        assertTrue("drop ${res.stats.runDrop}", abs(res.stats.runDrop - 144.0) < 25.0)
+        assertTrue(res.quality.hasAltitude)
+    }
+
+    @Test
+    fun aBadAnswerIsAnError() {
+        val samples = leg(null, 100, 5.0)
+        val failure = runCatching { Elevation.query(samples.take(3), { "{\"error\": \"quota\"}" }, {}) }
+        assertTrue(failure.exceptionOrNull() is Elevation.ElevationException)
+    }
+}

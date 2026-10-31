@@ -206,6 +206,7 @@ fun TrackMap(
             val h = size.height.toDouble()
             drawRect(bg)
             drawTiles(context, w, h, centerLat, centerLon, zoom, tilesVersion)
+            drawRect(Color.White.copy(alpha = 0.28f)) // calms the map so the track stands out
             drawLines(lines, w, h, centerLat, centerLon, zoom)
             for (d in dots) {
                 val p = project(d.lat, d.lon, w, h, centerLat, centerLon, zoom)
@@ -268,7 +269,7 @@ private fun DrawScope.drawLines(lines: List<MapLine>, w: Double, h: Double, cLat
             if (lastX.isNaN()) path.moveTo(x.toFloat(), y.toFloat()) else path.lineTo(x.toFloat(), y.toFloat())
             lastX = x; lastY = y
         }
-        drawPath(path, Color.White.copy(alpha = 0.9f), style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-        drawPath(path, l.color, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(path, Color.Black.copy(alpha = 0.6f), style = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(path, l.color, style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }

@@ -203,7 +203,7 @@ class RecordingService : Service(), LocationListener, SensorEventListener {
             GpsMode.ECONOMY -> 12_000L
             GpsMode.NORMAL -> when (sport) {
                 Sport.WALK -> 5_000L
-                Sport.BIKE, Sport.SKI -> 2_000L
+                Sport.BIKE, Sport.EBIKE, Sport.SKI -> 2_000L
                 else -> 3_000L
             }
         }

@@ -177,3 +177,41 @@ class InfoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SportAndElevationTest(unittest.TestCase):
+    def test_a_generic_sport_stays_other(self):
+        self.assertEqual(Sport.GPS, Sport.guess(0))
+        self.assertEqual(Sport.GPS, Sport.guess(None))
+        self.assertEqual(Sport.EBIKE, Sport.guess(21))
+        self.assertEqual(Sport.SKI, Sport.guess(13))
+
+    def test_terrain_elevation_makes_ski_runs_detectable_without_altitude(self):
+        from griffonote_win.core import elevation
+        strip = lambda ps: [TrackPoint(p.time, p.lat, p.lon) for p in ps]
+        raw_down = leg(None, 120, 12.0)
+        down = strip(raw_down)
+        lift = strip(leg(raw_down[-1], 300, 2.0))
+        track = Track(down + lift)
+        self.assertTrue(elevation.missing(track))
+        turn = 45.0 + 1440.0 / M
+
+        def fake(url):
+            lats = [float(c.split(",")[0]) for c in url.split("locations=")[1].split("|")]
+            alts = [2000 - (la - 45.0) * M * 0.1 if la <= turn else 2000 - 144 + (la - turn) * M * 0.25 for la in lats]
+            import json
+            return json.dumps({"results": [{"elevation": a} for a in alts], "status": "OK"})
+
+        samples = elevation.pick(analysis.clean(track))
+        self.assertLess(len(samples), len(track.points) / 4)
+        alts = elevation.query(samples, get=fake, pause=lambda: None)
+        filled = elevation.apply(track, elevation.parse(elevation.encode(alts)))
+        self.assertTrue(all(p.alt is not None for p in filled.points))
+        res = analysis.analyze(filled, Sport.SKI)
+        self.assertEqual(1, res.stats.runs)
+        self.assertLess(abs(res.stats.run_drop - 144.0), 25.0)
+
+    def test_a_bad_answer_is_an_error(self):
+        from griffonote_win.core import elevation
+        with self.assertRaises(elevation.ElevationError):
+            elevation.query(leg(None, 100, 5.0)[:3], get=lambda url: '{"error": "quota"}', pause=lambda: None)

@@ -22,6 +22,7 @@ class ActivityInfo:
     vmax: float | None = None   # m/s
     runs: int = 0
     file: str | None = None     # track file, relative to the notes folder
+    alt: str | None = None      # altitude looked up from the terrain model (attachments/….alt)
 
     def to_json(self) -> str:
         d: dict = {"sport": self.sport.key, "start": self.start, "elapsed": self.elapsed, "moving": self.moving,
@@ -34,6 +35,8 @@ class ActivityInfo:
             d["runs"] = self.runs
         if self.file:
             d["file"] = self.file
+        if self.alt:
+            d["alt"] = self.alt
         return json.dumps(d, ensure_ascii=False)
 
     @staticmethod
@@ -56,18 +59,18 @@ class ActivityInfo:
             sport=Sport.of(d.get("sport")), start=start, elapsed=int(num("elapsed")), moving=int(num("moving")),
             distance=num("distance"), ascent=int(num("ascent")), descent=int(num("descent")),
             hr=int(num("hr")) if "hr" in d else None, vmax=num("vmax") if "vmax" in d else None,
-            runs=int(num("runs")), file=d.get("file") or None,
+            runs=int(num("runs")), file=d.get("file") or None, alt=d.get("alt") or None,
         )
 
     @staticmethod
-    def from_analysis(sport: Sport, a: Analysis, track: Track, file: str | None) -> "ActivityInfo":
+    def from_analysis(sport: Sport, a: Analysis, track: Track, file: str | None, alt: str | None = None) -> "ActivityInfo":
         s = a.stats
         first = a.samples[0].time if a.samples else 0
         return ActivityInfo(
             sport=sport, start=track.start_time or first, elapsed=s.elapsed_ms // 1000, moving=s.moving_ms // 1000,
             distance=s.distance, ascent=round(s.ascent), descent=round(s.descent), hr=s.hr_avg,
             vmax=(s.run_max_speed if sport == Sport.SKI and s.runs > 0 else (s.max_speed or None)),
-            runs=s.runs, file=file,
+            runs=s.runs, file=file, alt=alt,
         )
 
 

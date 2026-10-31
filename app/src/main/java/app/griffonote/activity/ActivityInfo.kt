@@ -20,6 +20,8 @@ data class ActivityInfo(
     val runs: Int = 0,
     /** Track file (`attachments/…fit` or `.gpx`), null for activities without GPS. */
     val file: String? = null,
+    /** Altitude looked up from the terrain model for a file that had none (`attachments/….alt`). */
+    val alt: String? = null,
 ) {
     fun toJson(): String = buildString {
         append("{\"sport\": \"").append(sport.key).append('"')
@@ -33,6 +35,7 @@ data class ActivityInfo(
         vmax?.let { append(", \"vmax\": ").append(String.format(Locale.ROOT, "%.2f", it)) }
         if (runs > 0) append(", \"runs\": ").append(runs)
         file?.let { append(", \"file\": \"").append(it.replace("\\", "\\\\").replace("\"", "\\\"")).append('"') }
+        alt?.let { append(", \"alt\": \"").append(it.replace("\\", "\\\\").replace("\"", "\\\"")).append('"') }
         append('}')
     }
 
@@ -57,10 +60,11 @@ data class ActivityInfo(
                 vmax = map["vmax"]?.toDoubleOrNull(),
                 runs = map["runs"]?.toDoubleOrNull()?.toInt() ?: 0,
                 file = map["file"]?.ifEmpty { null },
+                alt = map["alt"]?.ifEmpty { null },
             )
         }
 
-        fun from(sport: Sport, a: Analysis, track: Track, file: String?): ActivityInfo {
+        fun from(sport: Sport, a: Analysis, track: Track, file: String?, alt: String? = null): ActivityInfo {
             val s = a.stats
             return ActivityInfo(
                 sport = sport,
@@ -74,6 +78,7 @@ data class ActivityInfo(
                 vmax = if (sport == Sport.SKI && s.runs > 0) s.runMaxSpeed else s.maxSpeed.takeIf { it > 0 },
                 runs = s.runs,
                 file = file,
+                alt = alt,
             )
         }
     }
