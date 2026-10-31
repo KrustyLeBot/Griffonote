@@ -92,6 +92,18 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
                 SettingsHint("Automatique : A4 ou US Letter selon la forme de la page.")
             }
 
+            SectionTitle("Activités")
+            SettingsCard {
+                var mode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(vm.settings.gpsMode) }
+                Text("Précision du GPS à l'enregistrement", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    app.griffonote.GpsMode.values().forEach { m ->
+                        FilterChip(mode == m, { mode = m; vm.settings.gpsMode = m }, { Text(m.label) })
+                    }
+                }
+                SettingsHint("Normale : un point toutes les 2 à 5 s selon le sport. Économie : un point toutes les 12 s, la batterie dure plus.")
+            }
+
             if (vm.settings.storage is StorageConfig.Default) SyncSettings(Settings.defaultDir().path)
             UpdateSettings(vm.updates)
             AboutSettings("Griffonote ${BuildConfig.VERSION_NAME}", "Des notes en Markdown, une par fichier, lisibles par n'importe quel éditeur.")

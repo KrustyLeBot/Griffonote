@@ -167,8 +167,8 @@ class RecordingService : Service(), LocationListener, SensorEventListener {
             this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        fun action(label: String, act: String, code: Int) = Notification.Action.Builder(
-            null, label,
+        fun action(label: String, act: String, code: Int, icon: Int) = Notification.Action.Builder(
+            icon, label,
             PendingIntent.getService(this, code, Intent(this, RecordingService::class.java).setAction(act), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT),
         ).build()
         val text = live?.let {
@@ -182,8 +182,11 @@ class RecordingService : Service(), LocationListener, SensorEventListener {
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(if (paused) action("Reprendre", ACTION_RESUME, 1) else action("Pause", ACTION_PAUSE, 2))
-            .addAction(action("Arrêter", ACTION_STOP, 3))
+            .addAction(
+                if (paused) action("Reprendre", ACTION_RESUME, 1, android.R.drawable.ic_media_play)
+                else action("Pause", ACTION_PAUSE, 2, android.R.drawable.ic_media_pause),
+            )
+            .addAction(action("Arrêter", ACTION_STOP, 3, android.R.drawable.ic_menu_close_clear_cancel))
             .build()
     }
 
