@@ -79,6 +79,8 @@ object Analyzer {
     const val RUN_MERGE_MS = 15_000L
     const val RUN_MIN_DROP = 20.0
     const val RUN_MIN_MS = 15_000L
+    const val PAUSE_BRIDGE = 100.0 // m
+    const val MAX_WINDOW_MS = 15_000L
 
     fun analyze(track: Track, sport: Sport): Analysis {
         val total = track.points.size
@@ -112,7 +114,12 @@ object Analyzer {
         for (k in 1 until n) {
             val inStop = stopIdx[k] && stopIdx[k - 1] && sameStop(stops, kept[k - 1].time, kept[k].time)
             cum[k] = cum[k - 1]
-            if (seg[k] != seg[k - 1]) continue
+            if (seg[k] != seg[k - 1]) {
+                // a pause (watch auto-pause, button): what was walked across it still counts, unless it is a jump
+                val d = Geo.distance(kept[k - 1], kept[k])
+                if (d <= PAUSE_BRIDGE) cum[k] += d
+                continue
+            }
             if (!inStop) {
                 cum[k] += Geo.distance(kept[k - 1], kept[k])
                 moving += kept[k].time - kept[k - 1].time
@@ -191,9 +198,9 @@ object Analyzer {
         val stats = Stats(
             elapsedMs = elapsed,
             movingMs = if (n >= 2) moving else (track.sessionTimerMs ?: 0L),
-            distance = if (n >= 2) cum.last() else (track.sessionDistance ?: 0.0),
+            distance = deviceOrComputed(track.sessionDistance, if (n >= 2) cum.last() else 0.0),
             ascent = ascent, descent = descent,
-            maxSpeed = speed.maxOrNull() ?: 0.0,
+            maxSpeed = maxWindowSpeed(kept, seg, cum),
             minAlt = altVals.minOrNull(), maxAlt = altVals.maxOrNull(),
             hrAvg = if (hrs.isNotEmpty()) Math.round(hrs.average()).toInt() else track.hrAvg,
             hrMax = hrs.maxOrNull() ?: track.hrMax,
@@ -209,6 +216,23 @@ object Analyzer {
             manufacturer = track.manufacturer,
         )
         return Analysis(samples, stops, pauseStops, runs, stats, quality)
+    }
+
+    /** The device's own total when the file has one and it is in the same range as ours (its sensors know more). */
+    private fun deviceOrComputed(device: Double?, computed: Double): Double =
+        if (device != null && device > 0 && (computed <= 0 || device in computed * 0.8..computed * 1.25)) device else computed
+
+    /** Top speed held for MAX_WINDOW_MS: single GPS catch-up spikes (after a signal gap) do not count. */
+    private fun maxWindowSpeed(p: List<TrackPoint>, seg: IntArray, cum: DoubleArray): Double {
+        var best = 0.0
+        var j = 0
+        for (i in p.indices) {
+            if (j < i) j = i
+            while (j + 1 < p.size && seg[j + 1] == seg[i] && p[j].time - p[i].time < MAX_WINDOW_MS) j++
+            val dt = (p[j].time - p[i].time) / 1000.0
+            if (dt >= MAX_WINDOW_MS / 1000.0 * 0.8) best = max(best, (cum[j] - cum[i]) / dt)
+        }
+        return best
     }
 
     private fun sameStop(stops: List<Stop>, a: Long, b: Long) = stops.any { a >= it.start && b <= it.end }

@@ -17,6 +17,8 @@ DOWN_NO_ALT_SPEED = 4.2   # m/s: without altitude, faster than a lift
 RUN_MERGE_MS = 15_000
 RUN_MIN_DROP = 20.0
 RUN_MIN_MS = 15_000
+PAUSE_BRIDGE = 100.0      # m
+MAX_WINDOW_MS = 15_000
 
 
 @dataclass
@@ -151,6 +153,10 @@ def analyze(track: Track, sport: Sport) -> Analysis:
     for k in range(1, n):
         cum[k] = cum[k - 1]
         if seg[k] != seg[k - 1]:
+            # a pause (watch auto-pause, button): what was walked across it still counts, unless it is a jump
+            d = distance_between(kept[k - 1], kept[k])
+            if d <= PAUSE_BRIDGE:
+                cum[k] += d
             continue
         in_stop = stop_idx[k] and stop_idx[k - 1] and same_stop(kept[k - 1].time, kept[k].time)
         if not in_stop:
@@ -236,9 +242,9 @@ def analyze(track: Track, sport: Sport) -> Analysis:
     stats = Stats(
         elapsed_ms=elapsed,
         moving_ms=moving if n >= 2 else (track.session_timer_ms or 0),
-        distance=cum[-1] if n >= 2 else (track.session_distance or 0.0),
+        distance=_device_or_computed(track.session_distance, cum[-1] if n >= 2 else 0.0),
         ascent=ascent, descent=descent,
-        max_speed=max(speed) if speed else 0.0,
+        max_speed=_max_window_speed(kept, seg, cum),
         min_alt=min(alts) if alts else None, max_alt=max(alts) if alts else None,
         hr_avg=round(sum(hrs) / len(hrs)) if hrs else track.hr_avg,
         hr_max=max(hrs) if hrs else track.hr_max,
@@ -252,6 +258,26 @@ def analyze(track: Track, sport: Sport) -> Analysis:
         median_interval_sec=intervals[len(intervals) // 2] if intervals else 0.0, manufacturer=track.manufacturer,
     )
     return Analysis(samples, stops, pause_stops, runs, stats, quality)
+
+
+def _max_window_speed(p: list[TrackPoint], seg: list[int], cum: list[float]) -> float:
+    """Top speed held for MAX_WINDOW_MS: single GPS catch-up spikes (after a signal gap) do not count."""
+    best, j = 0.0, 0
+    for i in range(len(p)):
+        j = max(j, i)
+        while j + 1 < len(p) and seg[j + 1] == seg[i] and p[j].time - p[i].time < MAX_WINDOW_MS:
+            j += 1
+        dt = (p[j].time - p[i].time) / 1000
+        if dt >= MAX_WINDOW_MS / 1000 * 0.8:
+            best = max(best, (cum[j] - cum[i]) / dt)
+    return best
+
+
+def _device_or_computed(device: float | None, computed: float) -> float:
+    """The device's own total when the file has one and it is in the same range as ours (its sensors know more)."""
+    if device and device > 0 and (computed <= 0 or computed * 0.8 <= device <= computed * 1.25):
+        return device
+    return computed
 
 
 def _smooth_altitude(p: list[TrackPoint]) -> list[float | None]:

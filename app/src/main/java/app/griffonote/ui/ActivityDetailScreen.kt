@@ -191,7 +191,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                     Section("Pauses et arrêts") {
                         stops.forEach { s ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (s.manual) "Pause (bouton)" else "Arrêt détecté")
+                                Text(if (s.manual) "Pause" else "Arrêt détecté")
                                 Text("${Fmt.duration(s.durationMs / 1000)} · ${formatHour(s.start)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }

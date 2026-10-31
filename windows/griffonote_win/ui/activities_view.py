@@ -518,7 +518,7 @@ class ActivitiesScreen(QWidget):
                 frame, lay = card("Pauses et arrêts")
                 for stop in stops:
                     row = QHBoxLayout()
-                    row.addWidget(QLabel("Pause (bouton)" if stop.manual else "Arrêt détecté"))
+                    row.addWidget(QLabel("Pause" if stop.manual else "Arrêt détecté"))
                     row.addStretch()
                     right = QLabel(f"{act.fmt_duration(stop.duration_ms // 1000)} · {fmt_hour(stop.start)}")
                     right.setStyleSheet(f"color: {s.on_surface_variant};")

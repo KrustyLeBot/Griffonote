@@ -1,3 +1,4 @@
+import pytest
 import time
 
 from griffonote_win.core import note as fmt
@@ -105,7 +106,7 @@ def test_importing_a_fit_file_creates_an_activity_in_its_own_folder(tmp_path):
     assert note.activity.file and (tmp_path / note.activity.file).is_file()
     assert note.attachments == [note.activity.file]
     assert note.activity.sport.key == "bike"
-    assert 225 < note.activity.distance < 250  # 90 s at 3 m/s minus the 10 s pause
+    assert note.activity.distance == pytest.approx(267.0, abs=0.1)  # the watch's own total is kept when close to ours
     # not in the regular list, but in the activities folder
     assert store.scan() == []
     assert [n.path for n in store.scan_activities()] == [note.path]
