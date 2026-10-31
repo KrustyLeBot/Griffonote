@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Palette
@@ -224,6 +225,7 @@ fun EditorScreen(vm: MainViewModel, ed: EditorState) {
                         ToolButton(Icons.Default.CheckBox, "Liste à cocher") { vm.convertToChecklist() }
                         ToolButton(Icons.Default.Palette, "Couleur") { showColors = true }
                         ToolButton(Icons.Default.Label, "Libellés") { showLabels = true }
+                        ToolButton(Icons.Default.Brush, "Dessiner") { vm.newDrawing() }
                         Box {
                             ToolButton(Icons.Default.AttachFile, "Joindre un fichier") { showAttach = true }
                             DropdownMenu(expanded = showAttach, onDismissRequest = { showAttach = false }) {

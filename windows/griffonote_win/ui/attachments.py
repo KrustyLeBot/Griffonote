@@ -7,6 +7,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QScrollArea, QToolButton, QWidget
 
+from ..core.drawing import is_drawing, parse as parse_drawing
 from ..core.note import attachment_name
 from . import icons
 
@@ -50,6 +51,12 @@ class AttachmentStrip(QScrollArea):
         tile.setStyleSheet(f"QToolButton {{ color: {fg}; background: rgba(128,128,128,0.15); border: none; border-radius: 12px; }}"
                            "QToolButton:hover { background: rgba(128,128,128,0.3); }")
         pixmap = QPixmap(str(file)) if file.suffix.lower().lstrip(".") in IMAGES else QPixmap()
+        if is_drawing(path):
+            try:
+                from .drawing_view import render_pixmap
+                pixmap = render_pixmap(parse_drawing(file.read_text(encoding="utf-8")), TILE * 2)
+            except OSError:
+                pixmap = QPixmap()
         if not pixmap.isNull():
             tile.setIcon(QIcon(pixmap.scaled(TILE - 12, TILE - 12, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)))
             tile.setIconSize(QSize(TILE - 12, TILE - 12))

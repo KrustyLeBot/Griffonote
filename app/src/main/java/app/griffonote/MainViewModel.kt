@@ -36,7 +36,7 @@ import app.griffonote.sync.SkipReason
 import app.griffonote.sync.SyncState
 import app.griffonote.sync.SynchrotronClient
 
-enum class Screen { LIST, EDITOR, SETTINGS, PDF, ACTIVITIES, ACTIVITY, RECORD }
+enum class Screen { LIST, EDITOR, SETTINGS, PDF, ACTIVITIES, ACTIVITY, RECORD, DRAWING }
 
 data class Snack(val text: String, val undo: (() -> Unit)? = null)
 
@@ -413,6 +413,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** A small version of an attached image, or null when it is not an image (or not there yet). */
     suspend fun thumbnail(path: String, maxPx: Int): android.graphics.Bitmap? = withContext(io) {
+        if (isDrawing(path)) {
+            val svg = repo.fs.readText(path) ?: return@withContext null
+            return@withContext app.griffonote.draw.DrawingBitmap.render(app.griffonote.draw.Drawing.parse(svg), maxPx)
+        }
         if (!isImage(path)) return@withContext null
         val bytes = repo.fs.readBytes(path) ?: return@withContext null
         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -420,6 +424,64 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         var sample = 1
         while (bounds.outWidth / (sample * 2) >= maxPx && bounds.outHeight / (sample * 2) >= maxPx) sample *= 2
         android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
+    // ---- drawings ----
+
+    /** The drawing being edited ([Screen.DRAWING]); saved into the open note when the screen is left. */
+    var drawing by mutableStateOf<app.griffonote.draw.DrawingState?>(null)
+        private set
+
+    /** Bumped when a drawing file is rewritten, so its thumbnail is drawn again. */
+    var drawingVersion by mutableStateOf(0)
+        private set
+
+    fun newDrawing() {
+        if (editor == null) return
+        drawing = app.griffonote.draw.DrawingState(app.griffonote.draw.Drawing(emptyList()), null)
+        screen = Screen.DRAWING
+    }
+
+    fun editDrawing(path: String) {
+        viewModelScope.launch {
+            val svg = withContext(io) { repo.fs.readText(path) }
+            if (svg == null) { snack = Snack("Dessin introuvable (pas encore synchronisé ?)"); return@launch }
+            drawing = app.griffonote.draw.DrawingState(app.griffonote.draw.Drawing.parse(svg), path)
+            screen = Screen.DRAWING
+        }
+    }
+
+    /** Back from the drawing: what was drawn goes into the note (an emptied drawing is removed from it). */
+    fun closeDrawing() {
+        val d = drawing
+        drawing = null
+        screen = if (editor != null) Screen.EDITOR else Screen.LIST
+        val ed = editor
+        if (d == null || ed == null || !d.changed) return
+        viewModelScope.launch {
+            try {
+                val existing = d.path
+                if (d.strokes.isEmpty()) {
+                    if (existing != null) {
+                        ed.attachments.remove(existing)
+                        withContext(io) { repo.fs.delete(existing) }
+                    }
+                } else {
+                    val svg = app.griffonote.draw.Drawing(d.strokes).toSvg()
+                    val path = withContext(io) {
+                        var p = existing ?: app.griffonote.draw.Drawing.newPath { NoteFormat.generateId() }
+                        while (existing == null && repo.fs.exists(p)) p = app.griffonote.draw.Drawing.newPath { NoteFormat.generateId() }
+                        repo.fs.writeText(p, svg)
+                        p
+                    }
+                    if (path !in ed.attachments) ed.attachments.add(path)
+                    drawingVersion++
+                }
+                persist(ed)
+            } catch (e: Exception) {
+                snack = Snack("Dessin non enregistré : ${e.message}")
+            }
+        }
     }
 
     // ---- navigation ----
@@ -448,6 +510,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Screen.ACTIVITIES -> screen = Screen.LIST
             Screen.ACTIVITY -> { activities.close(); screen = Screen.ACTIVITIES }
             Screen.RECORD -> screen = Screen.ACTIVITIES
+            Screen.DRAWING -> closeDrawing()
             Screen.PDF -> { viewingPdf = null; screen = if (editor != null) Screen.EDITOR else Screen.LIST }
             Screen.LIST -> when {
                 query.isNotEmpty() -> query = ""
@@ -648,6 +711,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
 /** Above this, a file is refused: it is copied in memory, then synced to every device. */
 const val MAX_ATTACHMENT = 50_000_000L
+
+/** A sketch made in the app: `drawings/<name>.svg`. */
+fun isDrawing(path: String) = path.startsWith("drawings/") && path.endsWith(".svg")
 
 fun isImage(path: String) = path.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp")
 

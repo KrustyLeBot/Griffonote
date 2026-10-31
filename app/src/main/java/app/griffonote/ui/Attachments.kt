@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.griffonote.MainViewModel
+import app.griffonote.isDrawing
 import app.griffonote.isImage
 
 private val TILE = 96.dp
@@ -63,9 +64,10 @@ fun Attachments(vm: MainViewModel, paths: List<String>, busy: Boolean, fg: Color
 @Composable
 private fun Tile(vm: MainViewModel, path: String, fg: Color) {
     val px = with(LocalDensity.current) { TILE.roundToPx() }
-    var thumb by remember(path) { mutableStateOf<Bitmap?>(null) }
-    if (isImage(path)) LaunchedEffect(path) { thumb = runCatching { vm.thumbnail(path, px) }.getOrNull() }
-    Box(Modifier.size(TILE).clip(RoundedCornerShape(12.dp)).clickable { vm.openFile(path) }) {
+    val version = vm.drawingVersion
+    var thumb by remember(path, version) { mutableStateOf<Bitmap?>(null) }
+    if (isImage(path) || isDrawing(path)) LaunchedEffect(path, version) { thumb = runCatching { vm.thumbnail(path, px) }.getOrNull() }
+    Box(Modifier.size(TILE).clip(RoundedCornerShape(12.dp)).clickable { if (isDrawing(path)) vm.editDrawing(path) else vm.openFile(path) }) {
         val bmp = thumb
         if (bmp != null) {
             Image(bmp.asImageBitmap(), displayName(path), contentScale = ContentScale.Crop, modifier = Modifier.size(TILE))

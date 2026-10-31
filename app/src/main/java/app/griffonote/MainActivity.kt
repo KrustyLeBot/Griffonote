@@ -24,6 +24,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import app.griffonote.ui.ActivitiesScreen
 import app.griffonote.ui.ActivityDetailScreen
+import app.griffonote.ui.DrawingScreen
 import app.griffonote.ui.RecordScreen
 import app.griffonote.ui.EditorScreen
 import app.griffonote.ui.GriffonoteTheme
@@ -111,6 +112,7 @@ class MainActivity : ComponentActivity() {
                     Screen.ACTIVITIES -> ActivitiesScreen(vm)
                     Screen.ACTIVITY -> vm.activities.detail?.let { ActivityDetailScreen(vm, it) }
                     Screen.RECORD -> RecordScreen(vm)
+                    Screen.DRAWING -> vm.drawing?.let { DrawingScreen(vm, it) }
                 }
             }
         }

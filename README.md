@@ -27,6 +27,15 @@ Griffonote/
 - The folder is the source of truth; the in-memory index is rebuilt on launch, on resume
   and when files change on disk.
 
+## Drawings
+
+A note can hold sketches (editor toolbar, brush button): a page to draw on with a finger (phone) or the mouse
+(PC), with a pen in six colours and three widths, an eraser that removes whole strokes, undo/redo, and zoom and
+pan (two fingers on the phone; wheel and right/middle drag on the PC). A drawing is a plain SVG, `drawings/dessin-<id6>.svg`,
+listed in the note's `attachments:` like any file: any viewer opens it, and Griffonote reads back its own paths
+(`<path d="M… L…" stroke="#rrggbb" stroke-width="…">`, page marked `data-griffonote="1"`) to edit it again. Tap
+the thumbnail in the note to edit; erasing everything removes the drawing. Deleting the note deletes its drawings.
+
 ## Activities
 
 The pinned "Activités" entry of the notes list opens a separate folder (`activities/`): figures for the

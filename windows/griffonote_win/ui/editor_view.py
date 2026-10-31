@@ -4,10 +4,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QGuiApplication, QKeyEvent, QTextBlockFormat, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
+from PySide6.QtWidgets import (QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QSizePolicy, QTextEdit, QToolButton, QVBoxLayout, QWidget)
 
+from ..core import atomic
 from ..core import note as fmt
+from ..core.drawing import is_drawing, new_path as new_drawing_path, parse as parse_drawing, to_svg
 from ..core.note import BodyParts, CheckItem, Note
 from ..core.store import Store, now_ms
 from . import icons, richtext, theme
@@ -247,7 +249,7 @@ class EditorScreen(QWidget):
         self.column.addWidget(self.pdf_banner)
 
         self.attachments = AttachmentStrip()
-        self.attachments.open_requested.connect(self.open_file)
+        self.attachments.open_requested.connect(self._open_attachment)
         self.attachments.reveal_requested.connect(self.reveal_file)
         self.attachments.remove_requested.connect(self.remove_attachment)
         self.attachments.hide()
@@ -302,6 +304,7 @@ class EditorScreen(QWidget):
         tools.addWidget(self._tool("palette", "Couleur", self.pick_color, self.tool_buttons))
         tools.addWidget(self._tool("label", "Libellés", self.pick_labels, self.tool_buttons))
         tools.addWidget(self._tool("attach", "Joindre des fichiers", self.add_attachments, self.tool_buttons))
+        tools.addWidget(self._tool("brush", "Dessiner", self.new_drawing, self.tool_buttons))
         tools.addWidget(self._tool("share", "Copier la note", self.copy_note, self.tool_buttons))
         tools.addStretch()
         self.delete_button = self._tool("delete", "Supprimer la note", self._request_delete, None)
@@ -498,6 +501,52 @@ class EditorScreen(QWidget):
             self.current = self.current.copy(attachments=self.current.attachments + added)
             self._show_attachments()
             self._edited()
+
+    # ---- drawings ----
+
+    def _open_attachment(self, path: str) -> None:
+        if is_drawing(path):
+            self.edit_drawing(path)
+        else:
+            self.open_file.emit(path)
+
+    def new_drawing(self) -> None:
+        self._draw(None)
+
+    def edit_drawing(self, path: str) -> None:
+        self._draw(path)
+
+    def _draw(self, path: str | None) -> None:
+        from .drawing_view import DrawingDialog
+        strokes = []
+        if path:
+            try:
+                strokes = parse_drawing((self.store.root / path).read_text(encoding="utf-8"))
+            except OSError:
+                self.message.emit("Dessin introuvable (pas encore synchronisé ?)")
+                return
+        dialog = DrawingDialog(self, strokes)
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.canvas.changed:
+            return
+        result = dialog.canvas.strokes
+        attachments = list(self.current.attachments)
+        if not result:
+            if path:  # everything erased: the drawing goes
+                try:
+                    (self.store.root / path).unlink()
+                except OSError:
+                    pass
+                attachments.remove(path)
+        else:
+            target = path
+            while target is None or (path is None and (self.store.root / target).exists()):
+                target = new_drawing_path(fmt.generate_id)
+            atomic.write_text(self.store.root / target, to_svg(result))
+            if target not in attachments:
+                attachments.append(target)
+        self.current = self.current.copy(attachments=attachments)
+        self._show_attachments()
+        self._edited()
 
     def remove_attachment(self, path: str) -> None:
         if self.current is None or self.store is None:
