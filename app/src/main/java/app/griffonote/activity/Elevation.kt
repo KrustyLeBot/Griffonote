@@ -89,5 +89,41 @@ object Elevation {
         return track.copy(points = points)
     }
 
+    /**
+     * Corrects a track that has an altitude (the barometer's) with the terrain model: the gap between both,
+     * smoothed over ±5 minutes, follows the barometer's slow drift (weather) without taking the terrain
+     * model's local errors. Returns the track with the corrected altitude.
+     */
+    fun refine(track: Track, dem: List<Pair<Long, Double>>): Track {
+        val byTime = HashMap<Long, Double>()
+        for (p in track.points) p.alt?.let { byTime[p.time] = it }
+        val diffs = dem.mapNotNull { (t, a) -> byTime[t]?.let { t to a - it } }.sortedBy { it.first }
+        if (diffs.size < 2) return track
+        val window = 300_000L
+        val smooth = diffs.map { (t, _) ->
+            val near = diffs.filter { kotlin.math.abs(it.first - t) <= window }.map { it.second }.sorted()
+            t to near[near.size / 2]
+        }
+        val times = LongArray(smooth.size) { smooth[it].first }
+        val points = track.points.map { p ->
+            val alt = p.alt ?: return@map p
+            var i = java.util.Arrays.binarySearch(times, p.time)
+            val corr = if (i >= 0) smooth[i].second else {
+                i = -i - 2
+                when {
+                    i < 0 -> smooth.first().second
+                    i >= smooth.size - 1 -> smooth.last().second
+                    else -> {
+                        val (t0, c0) = smooth[i]
+                        val (t1, c1) = smooth[i + 1]
+                        c0 + (c1 - c0) * (p.time - t0).toDouble() / (t1 - t0).coerceAtLeast(1)
+                    }
+                }
+            }
+            p.copy(alt = alt + corr)
+        }
+        return track.copy(points = points)
+    }
+
     fun missing(track: Track) = track.points.size >= 2 && track.points.none { it.alt != null }
 }

@@ -45,6 +45,9 @@ data class ActivityInfo(
     }
 
     companion object {
+        /** `alt` value of a recording whose barometer altitude was corrected with the terrain model (no file). */
+        const val ALT_REFINED = "baro+relief"
+
         private val PAIR = Regex("""\"(\w+)\"\s*:\s*(\"((?:[^\"\\]|\\.)*)\"|[-+0-9.eE]+)""")
 
         fun parse(raw: String): ActivityInfo? {

@@ -308,6 +308,7 @@ class ActivitiesScreen(QWidget):
         self.sport_filter: Sport | None = None
         self.selecting = False
         self.selected: set[str] = set()
+        self.included: set[Sport] = set(Sport)  # sports counted in the totals (settings)
         self.current: Note | None = None
         self.stack = QStackedWidget()
         outer = QVBoxLayout(self)
@@ -373,6 +374,10 @@ class ActivitiesScreen(QWidget):
         self.back.setIcon(icons.icon("back", theme.scheme().on_surface, 22))
         self.rebuild()
 
+    def set_included(self, sports: set[Sport]) -> None:
+        self.included = set(sports)
+        self.rebuild()
+
     def set_activities(self, notes: list[Note]) -> None:
         self.activities = sorted((n for n in notes if n.activity), key=lambda n: -n.activity.start)
         self.rebuild()
@@ -431,17 +436,15 @@ class ActivitiesScreen(QWidget):
         week_start = datetime(now.year, now.month, now.day).timestamp() * 1000 - now.weekday() * 86_400_000
         month_start = datetime(now.year, now.month, 1).timestamp() * 1000
         for name, since in (("Semaine", week_start), ("Mois", month_start), ("Total", 0)):
-            items = [n.activity for n in self.activities if n.activity.start >= since]
-            # skiing is counted apart: its track includes the lifts, which would inflate distance and climb
-            other = [i for i in items if i.sport != Sport.SKI]
+            items = [n.activity for n in self.activities if n.activity.start >= since and n.activity.sport in self.included]
             ski = [i for i in items if i.sport == Sport.SKI]
             frame, lay = card(name)
             lay.addWidget(QLabel(f"{len(items)} activité{'s' if len(items) > 1 else ''}"))
-            big = QLabel(act.fmt_distance(sum(i.distance for i in other)))
+            big = QLabel(act.fmt_distance(sum(i.distance for i in items)))
             big.setStyleSheet("font-size: 13pt; font-weight: 600;")
             lay.addWidget(big)
-            detail = act.fmt_duration(sum(i.moving for i in other))
-            ascent = sum(i.ascent for i in other)
+            detail = act.fmt_duration(sum(i.moving for i in items))
+            ascent = sum(i.ascent for i in items)
             lay.addWidget(QLabel(detail + (f" · ↑ {ascent} m" if ascent else "")))
             if ski:
                 lay.addWidget(QLabel(f"⛷️ {sum(i.runs for i in ski)} desc. · {sum(i.drop for i in ski)} m"))
@@ -695,7 +698,7 @@ class ActivitiesScreen(QWidget):
             frame, lay = card("Qualité des données")
             text = QLabel(f"{q.points} points" + (f" ({q.dropped} écartés)" if q.dropped else "")
                           + f" · un point toutes les {round(q.median_interval_sec)} s\n"
-                          + "Altitude : " + (("calculée d'après le relief" if info.alt else "oui") if q.has_altitude else "absente du fichier")
+                          + "Altitude : " + ((("baromètre corrigé avec le relief" if info.alt == "baro+relief" else "calculée d'après le relief") if info.alt else "oui") if q.has_altitude else "absente du fichier")
                           + f" · Fréquence cardiaque : {'oui' if q.has_hr else 'non'}")
             text.setStyleSheet(f"color: {s.on_surface_variant}; font-size: 9pt;")
             lay.addWidget(text)

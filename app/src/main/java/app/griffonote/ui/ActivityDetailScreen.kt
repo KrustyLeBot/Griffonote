@@ -258,7 +258,7 @@ fun ActivityDetailScreen(vm: MainViewModel, detail: ActivityDetail) {
                     Text(
                         "${q.points} points" + (if (q.dropped > 0) " (${q.dropped} écartés)" else "") +
                             " · un point toutes les ${Math.round(q.medianIntervalSec)} s\n" +
-                            "Altitude : " + (if (q.hasAltitude) (if (info?.alt != null) "calculée d'après le relief" else "oui") else "absente du fichier") +
+                            "Altitude : " + (if (q.hasAltitude) (if (info?.alt == app.griffonote.activity.ActivityInfo.ALT_REFINED) "baromètre corrigé avec le relief" else if (info?.alt != null) "calculée d'après le relief" else "oui") else "absente du fichier") +
                             " · Fréquence cardiaque : " + (if (q.hasHr) "oui" else "non"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

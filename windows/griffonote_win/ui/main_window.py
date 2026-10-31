@@ -94,6 +94,7 @@ class MainWindow(QMainWindow):
         self.settings.grid_changed.connect(self._grid_changed)
         self.settings.theme_changed.connect(self._theme_changed)
         self.settings.check_updates.connect(lambda: self.check_updates(manual=True))
+        self.settings.activity_changed.connect(self._activity_settings_changed)
 
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.new_note(False))
         QShortcut(QKeySequence("Ctrl+Shift+N"), self, activated=lambda: self.new_note(True))
@@ -138,7 +139,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.activities)
 
     def show_settings(self) -> None:
-        self.settings.load(str(self.store.root), self.list_screen.grid, self.config.theme)
+        self.settings.load(str(self.store.root), self.list_screen.grid, self.config.theme, self.store.activity_settings())
         self.stack.setCurrentWidget(self.settings)
 
     def _escape(self) -> None:
@@ -190,6 +191,7 @@ class MainWindow(QMainWindow):
         self.notes = self.store.scan()
         self.list_screen.set_notes(self.notes)
         acts = self.store.scan_activities()
+        self.activities.included = set(self.store.activity_settings().totals)
         self.activities.set_activities(acts)
         latest = max((n for n in acts if n.activity), key=lambda n: n.activity.start, default=None)
         self.list_screen.set_activity_summary(
@@ -204,6 +206,10 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
         if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
             self._poll_disk()
+
+    def _activity_settings_changed(self, settings) -> None:
+        self.store.save_activity_settings(settings)
+        self.activities.set_included(settings.totals)
 
     def _grid_changed(self, grid: bool) -> None:
         self.config.grid = grid

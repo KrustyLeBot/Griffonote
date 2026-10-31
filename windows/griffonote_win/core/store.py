@@ -12,6 +12,7 @@ from . import note as fmt
 from .activity import ActivityInfo
 from .analysis import analyze
 from .note import Note
+from .settings import PATH as SETTINGS_PATH, ActivitySettings
 from .track import Sport, Track
 
 ACTIVITIES_DIR = "activities"
@@ -99,6 +100,13 @@ class Store:
             if stale not in seen:
                 del self._cache[stale]
         return notes
+
+    def activity_settings(self) -> ActivitySettings:
+        text = self.read_raw(SETTINGS_PATH)
+        return ActivitySettings.parse(text) if text else ActivitySettings()
+
+    def save_activity_settings(self, settings: ActivitySettings) -> None:
+        self._write(SETTINGS_PATH, settings.to_json())
 
     def read_raw(self, path: str) -> str | None:
         try:

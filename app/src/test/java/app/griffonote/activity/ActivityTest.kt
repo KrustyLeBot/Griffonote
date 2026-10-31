@@ -350,3 +350,33 @@ class SportAndElevationTest {
         assertTrue(failure.exceptionOrNull() is Elevation.ElevationException)
     }
 }
+
+class SettingsAndRefineTest {
+    @Test
+    fun settingsRoundTripAndDefaultToEverything() {
+        val s = ActivitySettings(true, setOf(Sport.WALK, Sport.BIKE))
+        val back = ActivitySettings.parse(s.toJson())
+        assertTrue(back.refineAltitude)
+        assertEquals(setOf(Sport.WALK, Sport.BIKE), back.totals)
+        val empty = ActivitySettings.parse("{}")
+        assertTrue(!empty.refineAltitude)
+        assertEquals(Sport.values().toSet(), empty.totals)
+        assertEquals(emptySet<Sport>(), ActivitySettings.parse("{\"totals\": []}").totals)
+        assertEquals(Sport.values().toSet() - Sport.SKI, ActivitySettings(false, Sport.values().toSet() - Sport.SKI).let { ActivitySettings.parse(it.toJson()).totals })
+    }
+
+    @Test
+    fun refiningFollowsTheBarometersDriftButNotTheTerrainNoise() {
+        // truth: climbing 100 m over 10 minutes; the barometer drifts by +20 m over the same time
+        val pts = leg(null, 600, 1.5, vz = 0.1).map { p -> p.copy(alt = p.alt!! + 20.0 * (p.time - T0) / 600_000.0) }
+        val track = Track(pts)
+        val truth = { p: TrackPoint -> 1000.0 + 0.1 * (p.time - T0) / 1000.0 }
+        // terrain samples: the truth with a local error of ±6 m
+        val dem = Elevation.pick(Analyzer.clean(track)).mapIndexed { i, p -> p.time to truth(p) + (if (i % 2 == 0) 6.0 else -6.0) }
+        val refined = Elevation.refine(track, dem)
+        val worst = refined.points.maxOf { abs(it.alt!! - truth(it)) }
+        assertTrue("worst error $worst", worst < 8.0)
+        val before = track.points.maxOf { abs(it.alt!! - truth(it)) }
+        assertTrue("before $before", before > 15.0)
+    }
+}

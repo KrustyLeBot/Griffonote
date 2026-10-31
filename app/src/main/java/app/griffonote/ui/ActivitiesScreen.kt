@@ -51,13 +51,13 @@ import app.griffonote.activity.Sport
 import app.griffonote.record.Recorder
 import app.griffonote.suite.SuiteTopBar
 
-/** Skiing is counted apart: its track includes the lifts, so its distance and climb would inflate the other totals. */
-private data class Totals(val count: Int, val distance: Double, val seconds: Long, val ascent: Int, val skiDays: Int, val skiRuns: Int, val skiDrop: Int)
+private data class Totals(val count: Int, val distance: Double, val seconds: Long, val ascent: Int, val skiRuns: Int, val skiDrop: Int, val hasSki: Boolean)
 
-private fun totals(list: List<ActivityInfo>): Totals {
-    val other = list.filter { it.sport != Sport.SKI }
-    val ski = list.filter { it.sport == Sport.SKI }
-    return Totals(list.size, other.sumOf { it.distance }, other.sumOf { it.moving }, other.sumOf { it.ascent }, ski.size, ski.sumOf { it.runs }, ski.sumOf { it.drop })
+/** Only the sports ticked in the settings count (all by default); skiing, when counted, also gets its descents line. */
+private fun totals(list: List<ActivityInfo>, included: Set<Sport>): Totals {
+    val counted = list.filter { it.sport in included }
+    val ski = counted.filter { it.sport == Sport.SKI }
+    return Totals(counted.size, counted.sumOf { it.distance }, counted.sumOf { it.moving }, counted.sumOf { it.ascent }, ski.sumOf { it.runs }, ski.sumOf { it.drop }, ski.isNotEmpty())
 }
 
 /** The "Activités" folder: figures for the week, the month and overall, then the latest activities. */
@@ -83,9 +83,10 @@ fun ActivitiesScreen(vm: MainViewModel) {
     }
 
     val infos = remember(all) { all.mapNotNull { n -> n.activity?.let { n to it } }.sortedByDescending { it.second.start } }
-    val week = remember(infos) { totals(infos.map { it.second }.filter { it.start >= startOfWeek() }) }
-    val month = remember(infos) { totals(infos.map { it.second }.filter { it.start >= startOfMonth() }) }
-    val overall = remember(infos) { totals(infos.map { it.second }) }
+    val cfg by vm.repo.activitySettings.collectAsState()
+    val week = remember(infos, cfg) { totals(infos.map { it.second }.filter { it.start >= startOfWeek() }, cfg.totals) }
+    val month = remember(infos, cfg) { totals(infos.map { it.second }.filter { it.start >= startOfMonth() }, cfg.totals) }
+    val overall = remember(infos, cfg) { totals(infos.map { it.second }, cfg.totals) }
     val shown = infos.filter { filter == null || it.second.sport == filter }
 
     Scaffold(
@@ -246,7 +247,7 @@ private fun SummaryCard(title: String, t: Totals, modifier: Modifier) {
             Text(Fmt.distance(t.distance), fontWeight = FontWeight.SemiBold)
             Text(Fmt.duration(t.seconds), style = MaterialTheme.typography.bodySmall)
             if (t.ascent > 0) Text("↑ ${t.ascent} m", style = MaterialTheme.typography.bodySmall)
-            if (t.skiDays > 0) Text("⛷️ ${t.skiRuns} desc. · ${t.skiDrop} m", style = MaterialTheme.typography.bodySmall)
+            if (t.hasSki) Text("⛷️ ${t.skiRuns} desc. · ${t.skiDrop} m", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

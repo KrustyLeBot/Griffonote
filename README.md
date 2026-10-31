@@ -55,9 +55,14 @@ week, the month and overall, then the latest activities (walking, cycling, elect
   result is kept in `attachments/<name>.alt` (`time ms,altitude` lines; `alt` in the activity frontmatter). The
   FIT/GPX file itself is never modified. Without altitude, skiing descents fall back on speed, which also picks up
   gondolas.
+- Settings of the folder live in `activities/settings.json` (`{"refine_altitude": false, "totals": ["walk", ...]}`) and
+  sync with the notes: the sports counted in the totals (all by default) and "Affiner l'altitude avec le relief à
+  l'enregistrement" (off by default: on saving a recording, the barometer's altitude is corrected with the terrain
+  model, which follows its slow drift without taking the model's local errors; needs the network, sends the
+  positions to opentopodata.org; offline the barometer altitude is kept).
 - Skiing: climbs (lifts, uphill: altitude going up for at least a minute and 30 m, short stops allowed) are counted
-  and drawn in blue next to the descents. Totals leave skiing out of the distance, time and climb figures (its track
-  includes the lifts) and give it its own line (descents, metres skied down). The altitude of several activities can
+  and drawn in blue next to the descents. Totals count the sports ticked in the settings; when skiing is counted it also gets a line with its descents and
+  metres skied down (its track includes the lifts, so many people untick it). The altitude of several activities can
   be completed in one go (selection, or all): those that already have one are skipped.
 - Altitude when recording: the barometer gives the changes, the GPS keeps it honest (the gap between both is
   followed with a 5 minute time constant). The consolidated altitude is the standard FIT field; the raw GPS

@@ -115,7 +115,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val persistLock = Mutex()
 
     /** The "Activités" folder (import, recording, detail). */
-    val activities = ActivityController(app, repo, viewModelScope, io, { snack = it }, { uri -> copyIn(uri) }).also { c ->
+    val activities = ActivityController(app, repo, viewModelScope, io, { snack = it }, { uri -> copyIn(uri) }, { repo.activitySettings.value.refineAltitude }).also { c ->
         c.onOpen = { screen = Screen.ACTIVITY }
     }
 
@@ -431,6 +431,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openSettings() { screen = Screen.SETTINGS }
+
+    fun changeActivitySettings(s: app.griffonote.activity.ActivitySettings) {
+        repo.activitySettings.value.let { if (it == s) return }
+        viewModelScope.launch { withContext(io) { repo.saveActivitySettings(s) } }
+    }
 
     fun openActivities() { flushEditor(); screen = Screen.ACTIVITIES }
     fun openRecord() { screen = Screen.RECORD }

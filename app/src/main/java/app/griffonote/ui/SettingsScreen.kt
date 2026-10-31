@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,6 +96,7 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
 
             SectionTitle("Activités")
             SettingsCard {
+                val cfg by vm.repo.activitySettings.collectAsState()
                 var mode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(vm.settings.gpsMode) }
                 Text("Précision du GPS à l'enregistrement", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -102,6 +105,24 @@ fun SettingsScreen(vm: MainViewModel, onPickFolder: () -> Unit) {
                     }
                 }
                 SettingsHint("Normale : un point toutes les 2 à 5 s selon le sport. Économie : un point toutes les 12 s, la batterie dure plus.")
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Affiner l'altitude avec le relief à l'enregistrement", fontWeight = FontWeight.SemiBold)
+                        SettingsHint("À la sauvegarde, corrige la dérive du baromètre avec le modèle de relief (envoie les positions à opentopodata.org, quelques dizaines de secondes). Synchronisé avec le PC.")
+                    }
+                    androidx.compose.material3.Switch(cfg.refineAltitude, { vm.changeActivitySettings(cfg.copy(refineAltitude = it)) })
+                }
+                Text("Sports comptés dans les totaux", fontWeight = FontWeight.SemiBold)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    app.griffonote.activity.Sport.values().forEach { s ->
+                        FilterChip(
+                            s in cfg.totals,
+                            { vm.changeActivitySettings(cfg.copy(totals = if (s in cfg.totals) cfg.totals - s else cfg.totals + s)) },
+                            { Text(sportEmoji(s) + " " + s.label.substringBefore(" (")) },
+                        )
+                    }
+                }
+                SettingsHint("Distance, durée et dénivelé de l'écran Activités. Réglage synchronisé avec le PC.")
             }
 
             if (vm.settings.storage is StorageConfig.Default) SyncSettings(Settings.defaultDir().path)

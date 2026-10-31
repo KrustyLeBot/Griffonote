@@ -41,6 +41,7 @@ class ActivityController(
     private val io: CoroutineDispatcher,
     private val say: (Snack) -> Unit,
     private val copyIn: (Uri) -> String,
+    private val refineAltitude: () -> Boolean = { false },
 ) {
     val activities = repo.activities
 
@@ -113,7 +114,7 @@ class ActivityController(
     }
 
     /** Writes the track file and the note. Blocking: call from the IO dispatcher. */
-    fun saveNew(track: Track, sport: Sport, title: String, bytes: ByteArray, extension: String, replace: Note? = null): Note {
+    fun saveNew(track: Track, sport: Sport, title: String, bytes: ByteArray, extension: String, replace: Note? = null, altMarker: String? = null): Note {
         val a = Analyzer.analyze(track, sport)
         val now = System.currentTimeMillis()
         val ids = (repo.notes.value + repo.activities.value).map { it.id }.toSet()
@@ -121,10 +122,10 @@ class ActivityController(
         if (replace == null) while (id in ids) id = NoteFormat.generateId()
         val file = "attachments/" + NoteFormat.slug(title) + "-$id.$extension"
         repo.fs.writeBytes(file, bytes)
-        val info = ActivityInfo.from(sport, a, track, file)
+        val info = ActivityInfo.from(sport, a, track, file, altMarker)
         if (replace != null) {
             // the old track and its altitude file go; photos and the description stay
-            val old = listOfNotNull(replace.activity?.file, replace.activity?.alt)
+            val old = listOfNotNull(replace.activity?.file, replace.activity?.alt).filter { it.startsWith("attachments/") }
             old.filter { it != file }.forEach { repo.fs.delete(it) }
             return repo.save(replace.copy(title = title, activity = info, attachments = listOf(file) + replace.attachments.filter { it !in old }, updated = now))
         }
@@ -175,9 +176,27 @@ class ActivityController(
                     val name = title.trim().ifEmpty { defaultTitle(rec.sport, rec.start) }
                     val end = rec.track.points.lastOrNull()?.time ?: System.currentTimeMillis()
                     if (rec.sport.hasGps && rec.track.points.size >= 2) {
-                        val analysis = Analyzer.analyze(rec.track, rec.sport)
-                        val bytes = Fit.write(rec.track, rec.sport, analysis.stats.distance)
-                        saveNew(rec.track, rec.sport, name, bytes, "fit")
+                        var track = rec.track
+                        var marker: String? = null
+                        if (refineAltitude() && !Elevation.missing(track)) {
+                            // the barometer's altitude, corrected for its drift with the terrain model
+                            reliefProgress = "Relief…"
+                            try {
+                                val dem = Elevation.query(
+                                    Elevation.pick(Analyzer.clean(track)), get = ::httpGet, pause = { Thread.sleep(1100) },
+                                    progress = { n, total -> reliefProgress = "Relief ${n + 1}/$total…" },
+                                )
+                                track = Elevation.refine(track, dem)
+                                marker = ActivityInfo.ALT_REFINED
+                            } catch (e: Exception) {
+                                say(Snack("Relief indisponible : l'altitude du baromètre est conservée (${e.message})"))
+                            } finally {
+                                reliefProgress = null
+                            }
+                        }
+                        val analysis = Analyzer.analyze(track, rec.sport)
+                        val bytes = Fit.write(track, rec.sport, analysis.stats.distance)
+                        saveNew(track, rec.sport, name, bytes, "fit", null, marker)
                     } else {
                         val seconds = ((end - rec.start - rec.track.pauses.sumOf { it.end - it.start }) / 1000).coerceAtLeast(0)
                         saveManualNow(name, rec.sport, rec.start, seconds, distance ?: 0.0)
@@ -306,7 +325,7 @@ class ActivityController(
                 try {
                     val bytes = repo.fs.readBytes(file) ?: throw java.io.IOException("Fichier introuvable (pas encore synchronisé ?)")
                     var track = if (Fit.looksLikeFit(bytes)) Fit.read(bytes) else Gpx.read(String(bytes, Charsets.UTF_8))
-                    info.alt?.let { alt ->
+                    info.alt?.takeIf { it.startsWith("attachments/") }?.let { alt ->
                         if (Elevation.missing(track)) repo.fs.readText(alt)?.let { track = Elevation.apply(track, Elevation.parse(it)) }
                     }
                     ActivityDetail(note, track, Analyzer.analyze(track, info.sport))

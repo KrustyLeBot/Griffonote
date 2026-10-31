@@ -179,3 +179,18 @@ def test_filling_altitudes_in_bulk_skips_what_already_has_one(tmp_path, monkeypa
     assert filled.activity.ascent == 0 and filled.activity.descent > 0  # the altitude is read back
     # a second pass has nothing left to do
     assert store.fill_altitudes([filled])[:2] == (0, 1)
+
+
+def test_activity_settings_default_to_everything_and_round_trip_through_the_folder(tmp_path):
+    from griffonote_win.core.settings import ActivitySettings
+    from griffonote_win.core.store import Store
+    from griffonote_win.core.track import Sport
+    store = Store(tmp_path)
+    assert store.activity_settings().totals == set(Sport)
+    assert store.activity_settings().refine_altitude is False
+    store.save_activity_settings(ActivitySettings(True, set(Sport) - {Sport.SKI}))
+    assert (tmp_path / "activities" / "settings.json").is_file()
+    again = Store(tmp_path).activity_settings()
+    assert again.refine_altitude is True and Sport.SKI not in again.totals and Sport.WALK in again.totals
+    # the settings file is not an activity
+    assert store.scan_activities() == []

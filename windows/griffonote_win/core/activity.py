@@ -9,6 +9,9 @@ from .analysis import Analysis
 from .track import Sport, Track
 
 
+ALT_REFINED = "baro+relief"  # `alt` of a recording whose barometer altitude was corrected with the terrain model
+
+
 @dataclass
 class ActivityInfo:
     sport: Sport

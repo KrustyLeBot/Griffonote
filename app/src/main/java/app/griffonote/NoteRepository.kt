@@ -18,6 +18,15 @@ class NoteRepository(private val context: Context, private val settings: Setting
     private val _activities = MutableStateFlow<List<Note>>(emptyList())
     val activities: StateFlow<List<Note>> = _activities
 
+    /** `activities/settings.json`, shared with the PC through the sync. */
+    private val _activitySettings = MutableStateFlow(app.griffonote.activity.ActivitySettings())
+    val activitySettings: StateFlow<app.griffonote.activity.ActivitySettings> = _activitySettings
+
+    fun saveActivitySettings(s: app.griffonote.activity.ActivitySettings) {
+        fs.writeText(app.griffonote.activity.ActivitySettings.PATH, s.toJson())
+        _activitySettings.value = s
+    }
+
     private val parsed = HashMap<String, Pair<Long, Note>>() // path -> (lastModified, note)
     private var observers: List<FileObserver> = emptyList()
     var fs: Fs = buildFs(settings.storage)
@@ -68,6 +77,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
             acts.add(note)
         }
         parsed.keys.retainAll(seen)
+        fs.readText(app.griffonote.activity.ActivitySettings.PATH)?.let { _activitySettings.value = app.griffonote.activity.ActivitySettings.parse(it) }
         _notes.value = result
         _activities.value = acts
     }

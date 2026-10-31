@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QToolButton,
+from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QToolButton,
                                QVBoxLayout, QWidget)
 
+from ..core.settings import ActivitySettings
+from ..core.track import Sport
 from ..services import updater
 from . import icons, theme
 
@@ -14,6 +16,7 @@ class SettingsScreen(QWidget):
     grid_changed = Signal(bool)
     theme_changed = Signal(str)
     check_updates = Signal()
+    activity_changed = Signal(object)  # ActivitySettings
 
     def __init__(self):
         super().__init__()
@@ -88,6 +91,22 @@ class SettingsScreen(QWidget):
         row2.addStretch()
         body.addLayout(row2)
 
+        section("Activités (synchronisé avec le téléphone)")
+        body.addWidget(QLabel("Sports comptés dans les totaux"))
+        self.total_boxes = {}
+        sports_row = QHBoxLayout()
+        for sport in Sport:
+            box = QCheckBox(sport.label.split(" (")[0] + (" (GPS)" if sport == Sport.GPS else " (sans GPS)" if sport == Sport.PLAIN else ""))
+            box.toggled.connect(lambda _=False: self._activity_edited())
+            self.total_boxes[sport] = box
+            sports_row.addWidget(box)
+        sports_row.addStretch()
+        body.addLayout(sports_row)
+        self.refine_box = QCheckBox("Affiner l'altitude avec le relief à l'enregistrement (téléphone)")
+        self.refine_box.toggled.connect(lambda _=False: self._activity_edited())
+        body.addWidget(self.refine_box)
+        self._loading = False
+
         section("À propos")
         self.version = QLabel(f"Griffonote build {updater.current_build()}")
         body.addWidget(self.version)
@@ -116,8 +135,20 @@ class SettingsScreen(QWidget):
         self.folder.setStyleSheet(f"color: {s.on_surface_variant};")
         self.update_status.setStyleSheet(f"color: {s.on_surface_variant};")
 
-    def load(self, folder: str, grid: bool, theme_mode: str) -> None:
+    def _activity_edited(self) -> None:
+        if self._loading:
+            return
+        self.activity_changed.emit(ActivitySettings(self.refine_box.isChecked(),
+                                                    {s for s, b in self.total_boxes.items() if b.isChecked()}))
+
+    def load(self, folder: str, grid: bool, theme_mode: str, activity: ActivitySettings | None = None) -> None:
         self.folder.setText(folder)
+        self._loading = True
+        activity = activity or ActivitySettings()
+        for sport, box in self.total_boxes.items():
+            box.setChecked(sport in activity.totals)
+        self.refine_box.setChecked(activity.refine_altitude)
+        self._loading = False
         (self.grid_button if grid else self.list_button).setChecked(True)
         self.theme_buttons.get(theme_mode, self.theme_buttons["system"]).setChecked(True)
         self.restyle()
