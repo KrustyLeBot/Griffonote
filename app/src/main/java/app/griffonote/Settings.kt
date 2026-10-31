@@ -8,6 +8,11 @@ import java.io.File
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+enum class GpsMode(val label: String) {
+    NORMAL("Normale"),
+    ECONOMY("Économie de batterie"),
+}
+
 /** Where notes are stored: the shared Documents folder, or a SAF tree picked by the user. */
 sealed class StorageConfig {
     data object Default : StorageConfig()
@@ -32,6 +37,11 @@ class Settings(context: Context) {
     var scanFormat: ScanFormat
         get() = runCatching { ScanFormat.valueOf(prefs.getString("scan_format", "AUTO")!!) }.getOrDefault(ScanFormat.AUTO)
         set(v) = prefs.edit().putString("scan_format", v.name).apply()
+
+    /** GPS fix rate while recording: [GpsMode.ECONOMY] trades precision for battery. */
+    var gpsMode: GpsMode
+        get() = runCatching { GpsMode.valueOf(prefs.getString("gps_mode", "NORMAL")!!) }.getOrDefault(GpsMode.NORMAL)
+        set(v) = prefs.edit().putString("gps_mode", v.name).apply()
 
     val storage: StorageConfig
         get() = storageUri?.let { StorageConfig.Tree(Uri.parse(it)) } ?: StorageConfig.Default

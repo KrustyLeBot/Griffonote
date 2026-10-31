@@ -262,3 +262,40 @@ class InfoAndFusionTest {
         assertEquals("36,0 km/h", Fmt.speed(10.0))
     }
 }
+
+class RecordingLogTest {
+    @Test
+    fun logRoundTripsAndSurvivesATornLastLine() {
+        val pts = leg(null, 5, 2.0).mapIndexed { i, p -> p.copy(alt = 1000.0 + i, gpsAlt = 1001.0 + i, pressure = 900.0 - i) }
+        val text = buildString {
+            appendLine(RecordingLog.header(Sport.SKI, T0))
+            appendLine(RecordingLog.point(pts[0]))
+            appendLine(RecordingLog.event(T0 + 1500, "pause"))
+            appendLine(RecordingLog.event(T0 + 3500, "resume"))
+            for (p in pts.drop(1)) appendLine(RecordingLog.point(p))
+            append("P,17000000")
+        }
+        val rec = RecordingLog.parse(text)!!
+        assertEquals(Sport.SKI, rec.sport)
+        assertEquals(5, rec.track.points.size)
+        assertEquals(pts[2].lat, rec.track.points[2].lat, 1e-7)
+        assertEquals(1002.0, rec.track.points[2].alt!!, 0.05)
+        assertEquals(899.0, rec.track.points[1].pressure!!, 0.01)
+        assertEquals(1, rec.track.pauses.size)
+        assertEquals(2000L, rec.track.pauses[0].end - rec.track.pauses[0].start)
+    }
+
+    @Test
+    fun aLogEndingPausedKeepsNoPause() {
+        val text = RecordingLog.header(Sport.WALK, T0) + "\n" + RecordingLog.event(T0 + 10, "pause") + "\n"
+        assertTrue(RecordingLog.parse(text)!!.track.pauses.isEmpty())
+        assertNull(RecordingLog.parse("nothing here"))
+    }
+
+    @Test
+    fun climbCounterIgnoresNoise() {
+        val c = ClimbCounter()
+        listOf(100.0, 101.0, 100.5, 101.5, 100.0, 105.0, 104.0, 110.0).forEach { c.add(it) }
+        assertEquals(10.0, c.ascent, 0.001)
+    }
+}

@@ -30,11 +30,13 @@ import app.griffonote.scan.ScanFormat
 import app.griffonote.scan.ScanImages
 import app.griffonote.scan.ScanPdf
 import app.griffonote.scan.PdfPages
+import app.griffonote.activity.ActivityController
+import app.griffonote.record.Recorder
 import app.griffonote.sync.SkipReason
 import app.griffonote.sync.SyncState
 import app.griffonote.sync.SynchrotronClient
 
-enum class Screen { LIST, EDITOR, SETTINGS, PDF }
+enum class Screen { LIST, EDITOR, SETTINGS, PDF, ACTIVITIES, ACTIVITY, RECORD }
 
 data class Snack(val text: String, val undo: (() -> Unit)? = null)
 
@@ -112,6 +114,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val io = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private val persistLock = Mutex()
 
+    /** The "Activités" folder (import, recording, detail). */
+    val activities = ActivityController(app, repo, viewModelScope, io, { snack = it }, { uri -> copyIn(uri) }).also { c ->
+        c.onOpen = { screen = Screen.ACTIVITY }
+    }
+
     var screen by mutableStateOf(Screen.LIST)
     var editor by mutableStateOf<EditorState?>(null)
     var labelFilter by mutableStateOf<String?>(null)
@@ -173,6 +180,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val ready = checkStorageReady()
         if (ready != storageReady) storageReady = ready
         if (ready) {
+            Recorder.recover(getApplication<Application>().filesDir)
             refresh()
             repo.startWatching()
             checkExternal()
@@ -360,7 +368,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun copyIn(uri: Uri): String {
+    internal fun copyIn(uri: Uri): String {
         val resolver = getApplication<Application>().contentResolver
         var name = "fichier"
         var size = -1L
@@ -424,10 +432,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openSettings() { screen = Screen.SETTINGS }
 
+    fun openActivities() { flushEditor(); screen = Screen.ACTIVITIES }
+    fun openRecord() { screen = Screen.RECORD }
+    fun openActivity(note: Note) { activities.open(note) }
+
     fun back() {
         when (screen) {
             Screen.EDITOR -> closeEditor()
             Screen.SETTINGS -> screen = Screen.LIST
+            Screen.ACTIVITIES -> screen = Screen.LIST
+            Screen.ACTIVITY -> { activities.close(); screen = Screen.ACTIVITIES }
+            Screen.RECORD -> screen = Screen.ACTIVITIES
             Screen.PDF -> { viewingPdf = null; screen = if (editor != null) Screen.EDITOR else Screen.LIST }
             Screen.LIST -> when {
                 query.isNotEmpty() -> query = ""

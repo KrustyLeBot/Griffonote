@@ -22,6 +22,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import app.griffonote.ui.ActivitiesScreen
+import app.griffonote.ui.ActivityDetailScreen
+import app.griffonote.ui.RecordScreen
 import app.griffonote.ui.EditorScreen
 import app.griffonote.ui.GriffonoteTheme
 import app.griffonote.ui.ListScreen
@@ -105,6 +108,9 @@ class MainActivity : ComponentActivity() {
                     Screen.EDITOR -> vm.editor?.let { EditorScreen(vm, it) }
                     Screen.SETTINGS -> SettingsScreen(vm, onPickFolder = { pickTree.launch(null) })
                     Screen.PDF -> vm.viewingPdf?.let { PdfViewerScreen(vm, it) }
+                    Screen.ACTIVITIES -> ActivitiesScreen(vm)
+                    Screen.ACTIVITY -> vm.activities.detail?.let { ActivityDetailScreen(vm, it) }
+                    Screen.RECORD -> RecordScreen(vm)
                 }
             }
         }

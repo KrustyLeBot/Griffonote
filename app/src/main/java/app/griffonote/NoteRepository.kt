@@ -14,6 +14,10 @@ class NoteRepository(private val context: Context, private val settings: Setting
     private val _notes = MutableStateFlow<List<Note>>(emptyList())
     val notes: StateFlow<List<Note>> = _notes
 
+    /** The "Activités" folder: notes of `activities/`, kept out of the regular list. */
+    private val _activities = MutableStateFlow<List<Note>>(emptyList())
+    val activities: StateFlow<List<Note>> = _activities
+
     private val parsed = HashMap<String, Pair<Long, Note>>() // path -> (lastModified, note)
     private var observers: List<FileObserver> = emptyList()
     var fs: Fs = buildFs(settings.storage)
@@ -28,6 +32,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
         fs = buildFs(settings.storage)
         parsed.clear()
         _notes.value = emptyList()
+        _activities.value = emptyList()
     }
 
     /** Full rescan: reads only files whose modification time changed. */
@@ -47,8 +52,24 @@ class NoteRepository(private val context: Context, private val settings: Setting
             }
             result.add(note)
         }
+
+        val acts = ArrayList<Note>()
+        for (entry in fs.list(ACTIVITIES_DIR)) {
+            if (entry.isDir || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue
+            val path = "$ACTIVITIES_DIR/${entry.name}"
+            seen.add(path)
+            val cached = parsed[path]
+            val note = if (cached != null && cached.first == entry.lastModified) {
+                cached.second
+            } else {
+                val text = fs.readText(path) ?: continue
+                NoteFormat.parse(path, text, entry.lastModified).also { parsed[path] = entry.lastModified to it }
+            }
+            acts.add(note)
+        }
         parsed.keys.retainAll(seen)
         _notes.value = result
+        _activities.value = acts
     }
 
     fun startWatching() {
@@ -58,12 +79,14 @@ class NoteRepository(private val context: Context, private val settings: Setting
             FileObserver.MOVED_FROM or FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE
         val dir = fileFs.root
         if (!dir.isDirectory) return
-        observers = listOf(
-            object : FileObserver(dir.absolutePath, mask) {
-                override fun onEvent(event: Int, path: String?) {
-                    if (path != null && isNoteFile(path)) onExternalChange?.invoke()
-                }
-            }.also { it.startWatching() },
+        fun observe(d: java.io.File): FileObserver = object : FileObserver(d.absolutePath, mask) {
+            override fun onEvent(event: Int, path: String?) {
+                if (path != null && isNoteFile(path)) onExternalChange?.invoke()
+            }
+        }.also { it.startWatching() }
+        observers = listOfNotNull(
+            observe(dir),
+            java.io.File(dir, ACTIVITIES_DIR).takeIf { it.isDirectory }?.let { observe(it) },
         )
     }
 
@@ -87,7 +110,7 @@ class NoteRepository(private val context: Context, private val settings: Setting
     fun save(note: Note): Note {
         var n = note
         if (n.path.isEmpty()) {
-            val ids = _notes.value.map { it.id }.toSet()
+            val ids = (_notes.value + _activities.value).map { it.id }.toSet()
             var id = n.id
             while (id in ids || id.isEmpty()) id = NoteFormat.generateId()
             n = n.copy(id = id, path = NoteFormat.fileNameFor(n.title, id), hasId = true)
@@ -96,7 +119,8 @@ class NoteRepository(private val context: Context, private val settings: Setting
         fs.writeText(n.path, NoteFormat.serialize(n))
         val modified = fs.lastModified(n.path)
         parsed[n.path] = modified to n
-        _notes.value = _notes.value.filter { it.path != n.path } + n
+        if (isActivityPath(n.path)) _activities.value = _activities.value.filter { it.path != n.path } + n
+        else _notes.value = _notes.value.filter { it.path != n.path } + n
         return n
     }
 
@@ -107,7 +131,8 @@ class NoteRepository(private val context: Context, private val settings: Setting
         note.pdf?.let { fs.delete(it) }
         note.attachments.forEach { fs.delete(it) }
         parsed.remove(note.path)
-        _notes.value = _notes.value.filter { it.path != note.path }
+        if (isActivityPath(note.path)) _activities.value = _activities.value.filter { it.path != note.path }
+        else _notes.value = _notes.value.filter { it.path != note.path }
     }
 
     /**
@@ -147,7 +172,9 @@ class NoteRepository(private val context: Context, private val settings: Setting
 
     fun buildFsFor(config: StorageConfig): Fs = buildFs(config)
 
-    private companion object {
-        val CONFLICT_COPY = Regex(""".+\.md\.conflict\d+""")
+    companion object {
+        const val ACTIVITIES_DIR = "activities"
+        fun isActivityPath(path: String) = path.startsWith("$ACTIVITIES_DIR/")
+        private val CONFLICT_COPY = Regex(""".+\.md\.conflict\d+""")
     }
 }

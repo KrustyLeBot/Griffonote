@@ -1,0 +1,211 @@
+package app.griffonote.ui
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import app.griffonote.MainViewModel
+import app.griffonote.Note
+import app.griffonote.activity.ActivityInfo
+import app.griffonote.activity.Fmt
+import app.griffonote.activity.Sport
+import app.griffonote.record.Recorder
+import app.griffonote.suite.SuiteTopBar
+
+private data class Totals(val count: Int, val distance: Double, val seconds: Long, val ascent: Int)
+
+private fun totals(list: List<ActivityInfo>) = Totals(list.size, list.sumOf { it.distance }, list.sumOf { it.moving }, list.sumOf { it.ascent })
+
+/** The "Activités" folder: figures for the week, the month and overall, then the latest activities. */
+@Composable
+fun ActivitiesScreen(vm: MainViewModel) {
+    val all by vm.activities.activities.collectAsState()
+    val live by Recorder.state.collectAsState()
+    var filter by remember { mutableStateOf<Sport?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.activities.startImport(uri)
+    }
+    LaunchedEffect(vm.snack) {
+        val s = vm.snack ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(s.text, actionLabel = if (s.undo != null) "Annuler" else null)
+        if (result == SnackbarResult.ActionPerformed) s.undo?.invoke()
+        vm.snack = null
+    }
+
+    val infos = remember(all) { all.mapNotNull { n -> n.activity?.let { n to it } }.sortedByDescending { it.second.start } }
+    val week = remember(infos) { totals(infos.map { it.second }.filter { it.start >= startOfWeek() }) }
+    val month = remember(infos) { totals(infos.map { it.second }.filter { it.start >= startOfMonth() }) }
+    val overall = remember(infos) { totals(infos.map { it.second }) }
+    val shown = infos.filter { filter == null || it.second.sport == filter }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = { SuiteTopBar("Activités", onBack = { vm.back() }) },
+    ) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { vm.openRecord() }, modifier = Modifier.weight(1f)) { Text("Enregistrer") }
+                    OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) { Text("Importer FIT / GPX") }
+                }
+            }
+            live?.let { l ->
+                item {
+                    Card(
+                        onClick = { vm.openRecord() },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(14.dp)) {
+                            Text(
+                                if (l.finished) "Activité interrompue : à enregistrer" else "Enregistrement en cours",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text("${sportEmoji(l.sport)} ${l.sport.label} · touche pour ${if (l.finished) "terminer" else "revenir"}")
+                        }
+                    }
+                }
+            }
+            if (vm.activities.busy) {
+                item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() } }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SummaryCard("Semaine", week, Modifier.weight(1f))
+                    SummaryCard("Mois", month, Modifier.weight(1f))
+                    SummaryCard("Total", overall, Modifier.weight(1f))
+                }
+            }
+            item {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = filter == null, onClick = { filter = null }, label = { Text("Tout") })
+                    Sport.values().forEach { s ->
+                        FilterChip(selected = filter == s, onClick = { filter = if (filter == s) null else s }, label = { Text(sportEmoji(s) + " " + s.label.substringBefore(" (")) })
+                    }
+                }
+            }
+            if (shown.isEmpty()) {
+                item {
+                    Text(
+                        if (infos.isEmpty()) "Aucune activité. Importe un fichier FIT ou GPX (montre, Strava), ou enregistre-en une."
+                        else "Aucune activité de ce sport.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp),
+                    )
+                }
+            }
+            items(shown, key = { it.first.path }) { (note, info) -> ActivityRow(note, info) { vm.openActivity(note) } }
+        }
+    }
+
+    vm.activities.pending?.let { p ->
+        var title by remember(p) { mutableStateOf(p.title) }
+        var sport by remember(p) { mutableStateOf(p.sport) }
+        AlertDialog(
+            onDismissRequest = { vm.activities.cancelImport() },
+            title = { Text("Importer l'activité") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(title, { title = it }, label = { Text("Nom") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    SportChips(sport, listOf(Sport.WALK, Sport.BIKE, Sport.SKI, Sport.GPS)) { sport = it }
+                    Text(
+                        "${p.track.points.size} points" + (p.track.hrAvg?.let { " · FC moyenne $it" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { vm.activities.confirmImport(title, sport) }) { Text("Importer") } },
+            dismissButton = { TextButton(onClick = { vm.activities.cancelImport() }) { Text("Annuler") } },
+        )
+    }
+}
+
+@Composable
+fun SportChips(selected: Sport, sports: List<Sport>, onSelect: (Sport) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        sports.forEach { s ->
+            FilterChip(selected = selected == s, onClick = { onSelect(s) }, label = { Text(sportEmoji(s) + " " + s.label.substringBefore(" (")) })
+        }
+    }
+}
+
+@Composable
+private fun SummaryCard(title: String, t: Totals, modifier: Modifier) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer), modifier = modifier) {
+        Column(Modifier.padding(10.dp)) {
+            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Text("${t.count} activité${if (t.count > 1) "s" else ""}", style = MaterialTheme.typography.bodySmall)
+            Text(Fmt.distance(t.distance), fontWeight = FontWeight.SemiBold)
+            Text(Fmt.duration(t.seconds), style = MaterialTheme.typography.bodySmall)
+            if (t.ascent > 0) Text("↑ ${t.ascent} m", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun ActivityRow(note: Note, info: ActivityInfo, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(sportEmoji(info.sport), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(end = 12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(note.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(formatDate(info.start), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(summaryLine(info), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+fun summaryLine(i: ActivityInfo): String {
+    val parts = ArrayList<String>()
+    if (i.distance > 0) parts.add(Fmt.distance(i.distance))
+    parts.add(Fmt.duration(if (i.moving > 0) i.moving else i.elapsed))
+    if (i.sport.hasGps && i.moving > 0 && i.distance > 0) parts.add(Fmt.speedFor(i.sport, i.distance / i.moving))
+    if (i.ascent > 0) parts.add("↑ ${i.ascent} m")
+    if (i.sport == Sport.SKI && i.runs > 0) parts.add("${i.runs} descentes")
+    return parts.joinToString(" · ")
+}
