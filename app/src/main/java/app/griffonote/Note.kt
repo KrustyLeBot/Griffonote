@@ -21,6 +21,8 @@ data class Note(
     val pdf: String? = null,
     /** Files attached to the note (photos, documents…), relative to the storage root (`attachments/<name>`). */
     val attachments: List<String> = emptyList(),
+    /** Set for the notes of the "Activités" folder: what the list shows without reading the track file. */
+    val activity: app.griffonote.activity.ActivityInfo? = null,
     /** Unknown frontmatter lines, kept verbatim for Obsidian compatibility. */
     val extra: List<String> = emptyList(),
     val conflict: Boolean = false,

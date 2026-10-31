@@ -11,7 +11,7 @@ import kotlin.random.Random
 
 /** Markdown + YAML frontmatter reader/writer. Pure Kotlin so it can be unit-tested on the JVM. */
 object NoteFormat {
-    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "pdf", "attachments", "created", "updated")
+    private val KNOWN = setOf("id", "title", "color", "pinned", "labels", "reminder", "pdf", "attachments", "activity", "created", "updated")
     private val KEY_REGEX = Regex("""^([A-Za-z_][\w-]*):[ \t]*(.*)$""")
     private const val ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -77,6 +77,7 @@ object NoteFormat {
             reminder = values["reminder"]?.let { parseTime(it) },
             pdf = values["pdf"]?.let { unquote(it) }?.ifEmpty { null },
             attachments = values["attachments"]?.let { parseList(it) }.orEmpty(),
+            activity = values["activity"]?.let { app.griffonote.activity.ActivityInfo.parse(it) },
             created = values["created"]?.let { parseTime(it) } ?: lastModified,
             updated = values["updated"]?.let { parseTime(it) } ?: lastModified,
             body = body,
@@ -99,6 +100,7 @@ object NoteFormat {
         if (note.attachments.isNotEmpty()) {
             sb.append("attachments: [").append(note.attachments.joinToString(", ") { yamlQuote(it, flow = true) }).append("]\n")
         }
+        note.activity?.let { sb.append("activity: ").append(it.toJson()).append('\n') }
         sb.append("created: ").append(formatTime(note.created)).append('\n')
         sb.append("updated: ").append(formatTime(note.updated)).append('\n')
         note.extra.forEach { sb.append(it).append('\n') }

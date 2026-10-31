@@ -10,6 +10,8 @@ import unicodedata
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 
+from .activity import ActivityInfo
+
 DEFAULT_COLOR = "default"
 COLORS = {
     "default": "Par défaut",
@@ -26,7 +28,7 @@ COLORS = {
     "gray": "Graphite",
 }
 
-_KNOWN = {"id", "title", "color", "pinned", "labels", "reminder", "pdf", "attachments", "created", "updated"}
+_KNOWN = {"id", "title", "color", "pinned", "labels", "reminder", "pdf", "attachments", "activity", "created", "updated"}
 _KEY_RE = re.compile(r"^([A-Za-z_][\w-]*):[ \t]*(.*)$")
 _ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
 CHECK_RE = re.compile(r"^\s*[-*+] \[( |x|X)\] ?(.*)$")
@@ -44,6 +46,7 @@ class Note:
     reminder: int | None = None  # epoch millis, preserved untouched
     pdf: str | None = None  # scanned document, relative to the notes folder ("attachments/<name>.pdf")
     attachments: list[str] = field(default_factory=list)  # attached files, relative to the notes folder
+    activity: ActivityInfo | None = None  # set for the notes of the "Activités" folder
     created: int = 0
     updated: int = 0
     has_id: bool = True
@@ -233,6 +236,7 @@ def parse(path: str, raw_text: str, last_modified: int) -> Note:
         reminder=parse_time(values["reminder"]) if "reminder" in values else None,
         pdf=unquote(values["pdf"]) or None if "pdf" in values else None,
         attachments=parse_list(values["attachments"]) if "attachments" in values else [],
+        activity=ActivityInfo.parse(values["activity"]) if "activity" in values else None,
         created=(parse_time(values["created"]) if "created" in values else None) or last_modified,
         updated=(parse_time(values["updated"]) if "updated" in values else None) or last_modified,
         body=body,
@@ -255,6 +259,8 @@ def serialize(note: Note) -> str:
         out.append(f"pdf: {yaml_quote(note.pdf)}")
     if note.attachments:
         out.append("attachments: [" + ", ".join(yaml_quote(x, flow=True) for x in note.attachments) + "]")
+    if note.activity is not None:
+        out.append(f"activity: {note.activity.to_json()}")
     out.append(f"created: {format_time(note.created)}")
     out.append(f"updated: {format_time(note.updated)}")
     out.extend(note.extra)

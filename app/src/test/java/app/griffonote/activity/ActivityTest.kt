@@ -1,0 +1,264 @@
+package app.griffonote.activity
+
+import app.griffonote.Note
+import app.griffonote.NoteFormat
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.math.abs
+import kotlin.math.sin
+
+private const val T0 = 1_700_000_000_000L
+private const val M_PER_DEG = 111_320.0
+
+/** Straight line going north from (45, 6): [speed] m/s, [vz] m/s of altitude, one fix per [step] s. */
+private fun leg(
+    from: TrackPoint?, seconds: Int, speed: Double, vz: Double = 0.0, step: Int = 1, noise: Double = 0.0,
+    hr: Int? = null, startAlt: Double = 1000.0,
+): List<TrackPoint> {
+    val out = ArrayList<TrackPoint>()
+    var lat = from?.lat ?: 45.0
+    val lon = from?.lon ?: 6.0
+    var alt = from?.alt ?: startAlt
+    var t = from?.time ?: T0
+    var i = 0
+    while (i < seconds) {
+        i += step
+        t += step * 1000L
+        lat += speed * step / M_PER_DEG
+        alt += vz * step
+        val jitter = if (noise != 0.0) noise * sin(t / 1000.0 * 1.7) else 0.0
+        out.add(TrackPoint(t, lat + jitter / M_PER_DEG, lon + jitter * 0.7 / M_PER_DEG, alt, hr))
+    }
+    return out
+}
+
+class FitTest {
+    @Test
+    fun writeThenReadKeepsPointsPausesAndSession() {
+        val pts = leg(null, 120, 3.0, vz = 0.1, hr = 130).mapIndexed { i, p ->
+            p.copy(gpsAlt = p.alt!! + 2, pressure = 900.0 - i * 0.01)
+        }
+        val pause = Pause(pts[40].time + 500, pts[60].time - 500)
+        val track = Track(pts, listOf(pause), sessionElapsedMs = 120_000, sessionTimerMs = 100_000)
+        val bytes = Fit.write(track, Sport.BIKE, 360.0)
+        assertEquals("a valid FIT CRC checks to zero", 0, Fit.crc(bytes))
+
+        val back = Fit.read(bytes)
+        assertEquals(pts.size, back.points.size)
+        assertEquals(pts[10].lat, back.points[10].lat, 1e-6)
+        assertEquals(pts[10].lon, back.points[10].lon, 1e-6)
+        assertEquals(pts[10].alt!!, back.points[10].alt!!, 0.2)
+        assertEquals(130, back.points[10].hr)
+        assertEquals(pts[10].gpsAlt!!, back.points[10].gpsAlt!!, 0.01)
+        assertEquals(pts[10].pressure!!, back.points[10].pressure!!, 0.01)
+        assertEquals(pts[10].time, back.points[10].time)
+        assertEquals(Sport.BIKE, Sport.fromFit(back.fitSport))
+        assertEquals(1, back.pauses.size)
+        assertEquals(pause.start / 1000, back.pauses[0].start / 1000)
+        assertEquals(pause.end / 1000, back.pauses[0].end / 1000)
+        assertEquals(100_000L, back.sessionTimerMs)
+        assertEquals(360.0, back.sessionDistance!!, 0.01)
+    }
+
+    @Test
+    fun negativeCoordinatesSurvive() {
+        val p = TrackPoint(T0, -33.8688, -151.2093, null)
+        val back = Fit.read(Fit.write(Track(listOf(p, p.copy(time = T0 + 1000)), emptyList()), Sport.GPS, 0.0))
+        assertEquals(-33.8688, back.points[0].lat, 1e-6)
+        assertEquals(-151.2093, back.points[0].lon, 1e-6)
+        assertNull(back.points[0].alt)
+        assertNull(back.points[0].hr)
+    }
+
+    @Test(expected = Fit.FitException::class)
+    fun refusesOtherFiles() {
+        Fit.read("hello world, not a FIT file".toByteArray())
+    }
+}
+
+class GpxTest {
+    @Test
+    fun readsPointsHeartRateAndSegmentsAsPauses() {
+        val gpx = """<?xml version="1.0"?>
+<gpx version="1.1" creator="test"><trk><name>Tour du lac</name>
+<trkseg>
+<trkpt lat="45.0" lon="6.0"><ele>1000.5</ele><time>2024-01-01T10:00:00Z</time><extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>120</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions></trkpt>
+<trkpt lon="6.0001" lat="45.0001"><ele>1001</ele><time>2024-01-01T10:00:10Z</time></trkpt>
+</trkseg>
+<trkseg>
+<trkpt lat="45.001" lon="6.001"><time>2024-01-01T10:30:00.500Z</time></trkpt>
+</trkseg></trk></gpx>"""
+        val t = Gpx.read(gpx)
+        assertEquals(3, t.points.size)
+        assertEquals("Tour du lac", t.name)
+        assertEquals(1000.5, t.points[0].alt!!, 0.001)
+        assertEquals(120, t.points[0].hr)
+        assertEquals(6.0001, t.points[1].lon, 1e-9)
+        assertNull(t.points[2].alt)
+        assertEquals(1, t.pauses.size)
+        assertEquals((30 * 60 - 10) * 1000L + 500L, t.pauses[0].end - t.pauses[0].start)
+    }
+}
+
+class AnalysisTest {
+    @Test
+    fun aStopIsDetectedAndNotCountedAsMovingTime() {
+        val a = leg(null, 300, 1.4, noise = 0.0)
+        // standing still for 60 s with GPS jitter of ±2 m
+        val b = leg(a.last(), 60, 0.0, noise = 2.0)
+        val c = leg(b.last(), 300, 1.4)
+        val res = Analyzer.analyze(Track(a + b + c), Sport.WALK)
+        assertEquals(1, res.stops.size)
+        val stop = res.stops[0]
+        assertTrue("stop lasts about a minute", abs(stop.durationMs - 60_000L) < 10_000)
+        assertEquals(659_000L, res.stats.elapsedMs)
+        assertTrue("moving time without the stop", abs(res.stats.movingMs - 600_000L) < 12_000)
+        // 600 s at 1.4 m/s = 840 m; the jitter must not add distance
+        assertTrue("distance ${res.stats.distance}", abs(res.stats.distance - 840.0) < 25.0)
+    }
+
+    @Test
+    fun aManualPauseIsNotCounted() {
+        val a = leg(null, 200, 3.0)
+        val gap = leg(a.last(), 1800, 0.0, step = 60) // 30 min, one fix a minute
+        val b = leg(gap.last(), 200, 3.0)
+        val pause = Pause(a.last().time + 1000, b.first().time - 1000)
+        val res = Analyzer.analyze(Track(a + b, listOf(pause)), Sport.BIKE)
+        assertTrue("moving ${res.stats.movingMs}", abs(res.stats.movingMs - 400_000L) < 4_000)
+        assertTrue(res.stats.elapsedMs > 2_000_000L)
+        assertEquals(1, res.pauses.size)
+        assertTrue(abs(res.stats.distance - 1200.0) < 20.0)
+        assertTrue(gap.isNotEmpty())
+    }
+
+    @Test
+    fun gpsJumpsAreDropped() {
+        val pts = leg(null, 60, 2.0).toMutableList()
+        pts[30] = pts[30].copy(lat = pts[30].lat + 0.5) // 55 km away for one second
+        val res = Analyzer.analyze(Track(pts), Sport.WALK)
+        assertEquals(1, res.quality.dropped)
+        assertTrue(abs(res.stats.distance - 118.0) < 5.0)
+    }
+
+    @Test
+    fun noiseOnFlatGroundIsNoClimb() {
+        val pts = leg(null, 600, 1.5).mapIndexed { i, p -> p.copy(alt = 1000.0 + (if (i % 2 == 0) 1.2 else -1.2)) }
+        val res = Analyzer.analyze(Track(pts), Sport.WALK)
+        assertEquals(0.0, res.stats.ascent, 0.001)
+        assertEquals(0.0, res.stats.descent, 0.001)
+    }
+
+    @Test
+    fun aRealClimbIsCounted() {
+        val pts = leg(null, 600, 1.0, vz = 0.2)
+        val res = Analyzer.analyze(Track(pts), Sport.WALK)
+        assertTrue("ascent ${res.stats.ascent}", abs(res.stats.ascent - 120.0) < 10.0)
+        assertEquals(0.0, res.stats.descent, 3.5)
+    }
+
+    @Test
+    fun skiRunsIgnoreTheLift() {
+        val all = ArrayList<TrackPoint>()
+        var last: TrackPoint? = null
+        repeat(3) {
+            val down = leg(last, 120, 12.0, vz = -1.2)   // 144 m of drop
+            val lift = leg(down.last(), 300, 2.0, vz = 0.5) // 150 m up, slow
+            all += down + lift
+            last = lift.last()
+        }
+        val res = Analyzer.analyze(Track(all), Sport.SKI)
+        assertEquals(3, res.stats.runs)
+        assertTrue("run drop ${res.stats.runDrop}", abs(res.stats.runDrop - 3 * 144.0) < 40.0)
+        assertTrue("run speed ${res.stats.runMaxSpeed}", abs(res.stats.runMaxSpeed - 12.0) < 1.0)
+        assertTrue(res.samples.any { it.down })
+        assertTrue("lift samples are not downhill", res.samples.filter { !it.down }.all { it.speed < 3.0 || it.alt != null })
+        val onlyLiftSpeed = res.samples.filter { it.down }.minOf { it.speed }
+        assertTrue(onlyLiftSpeed > 3.0)
+    }
+
+    @Test
+    fun noRunsForOtherSports() {
+        val down = leg(null, 120, 12.0, vz = -1.2)
+        assertEquals(0, Analyzer.analyze(Track(down), Sport.BIKE).stats.runs)
+    }
+
+    @Test
+    fun skiWithoutAltitudeFallsBackOnSpeed() {
+        val down = leg(null, 90, 10.0).map { it.copy(alt = null) }
+        val lift = leg(down.last(), 200, 2.0).map { it.copy(alt = null) }
+        val res = Analyzer.analyze(Track(down + lift), Sport.SKI)
+        assertEquals(1, res.stats.runs)
+        assertTrue(!res.quality.hasAltitude)
+    }
+
+    @Test
+    fun qualityReportsSamplingAndHeartRate() {
+        val res = Analyzer.analyze(Track(leg(null, 100, 2.0, step = 5, hr = 140)), Sport.WALK)
+        assertEquals(5.0, res.quality.medianIntervalSec, 0.01)
+        assertTrue(res.quality.hasHr)
+        assertEquals(140, res.stats.hrAvg)
+    }
+}
+
+class InfoAndFusionTest {
+    @Test
+    fun infoRoundTripsThroughTheNoteFrontmatter() {
+        val info = ActivityInfo(Sport.SKI, T0, 7200, 6000, 25432.4, 410, 1500, 128, 21.3, 9, "attachments/ski-ab12cd.fit")
+        val note = Note(path = "activities/ski-ab12cd.md", id = "ab12cd", title = "Ski à La Plagne", created = T0, updated = T0, activity = info, attachments = listOf("attachments/ski-ab12cd.fit"))
+        val text = NoteFormat.serialize(note)
+        assertTrue(text.contains("activity: {\"sport\": \"ski\""))
+        val back = NoteFormat.parse(note.path, text, T0)
+        assertEquals(info.sport, back.activity!!.sport)
+        assertEquals(info.start, back.activity!!.start)
+        assertEquals(25432.4, back.activity!!.distance, 0.05)
+        assertEquals(9, back.activity!!.runs)
+        assertEquals("attachments/ski-ab12cd.fit", back.activity!!.file)
+        assertEquals(21.3, back.activity!!.vmax!!, 0.01)
+    }
+
+    @Test
+    fun noActivityKeyMeansPlainNote() {
+        val note = Note(path = "a.md", id = "aaaaaa", title = "x", created = T0, updated = T0)
+        assertNull(NoteFormat.parse("a.md", NoteFormat.serialize(note), T0).activity)
+    }
+
+    @Test
+    fun fusionFollowsThePressureAndSlowlyTheGps() {
+        val f = AltitudeFusion()
+        // sea-level-ish start: GPS says 500 m at the pressure of 954.6 hPa
+        val p0 = 954.6
+        val first = f.update(T0, p0, 500.0, 5f)
+        assertEquals(500.0, first!!, 0.01)
+        // pressure drops 1 hPa = about 8.3 m up; GPS is noisy (+/- 15 m) and must not move the result much
+        val up = f.update(T0 + 10_000, p0 - 1.0, 530.0, 5f)
+        assertTrue("up $up", up!! in 507.0..512.0)
+        // without GPS the barometer carries on
+        val noGps = f.update(T0 + 20_000, p0 - 2.0, null, null)
+        assertTrue("noGps $noGps", noGps!! > up)
+        assertEquals(700.0, AltitudeFusion().update(T0, null, 700.0, 5f)!!, 0.001)
+        assertNull(AltitudeFusion().update(T0, 950.0, null, null))
+    }
+
+    @Test
+    fun mercatorRoundTrips() {
+        val z = 12.0
+        val x = MapMath.worldX(6.0, z)
+        val y = MapMath.worldY(45.0, z)
+        assertEquals(6.0, MapMath.lon(x, z), 1e-9)
+        assertEquals(45.0, MapMath.lat(y, z), 1e-9)
+        assertNotNull(MapMath.fitZoom(45.0, 6.0, 45.01, 6.01, 800.0, 600.0))
+        assertTrue(MapMath.fitZoom(45.0, 6.0, 45.01, 6.01, 800.0, 600.0) in 12.0..17.0)
+    }
+
+    @Test
+    fun formattingIsFrench() {
+        assertEquals("850 m", Fmt.distance(850.2))
+        assertEquals("12,35 km", Fmt.distance(12345.0))
+        assertEquals("1:05:03", Fmt.clock(3903))
+        assertEquals("5:00 /km", Fmt.pace(3.3333))
+        assertEquals("36,0 km/h", Fmt.speed(10.0))
+    }
+}
